@@ -43,10 +43,17 @@ class Job:
 
     @property
     def id(self):
+        """
+        Job ID
+        """
         return self.job_proto.id
 
     @property
     def status(self):
+        """
+        Status of current job, one of the following: JOB_STATUS_INVALID,
+        JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_DONE  
+        """
         return self.job_proto.status
 
     def reload(self):

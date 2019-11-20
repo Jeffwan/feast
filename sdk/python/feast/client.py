@@ -62,6 +62,8 @@ CPU_COUNT = os.cpu_count()  # type: int
 
 
 class Client:
+    """Client for interfacing with Feast Core and Serving."""
+
     def __init__(
         self, core_url: str = None, serving_url: str = None, verbose: bool = False
     ):
@@ -100,6 +102,7 @@ class Client:
     def version(self):
         """
         Returns version information from Feast Core and Feast Serving
+
         :return: Dictionary containing Core and Serving versions and status
         """
 
@@ -194,6 +197,7 @@ class Client:
     def apply(self, feature_sets: Union[List[FeatureSet], FeatureSet]):
         """
         Idempotently registers feature set(s) with Feast Core. Either a single feature set or a list can be provided.
+
         :param feature_sets: Union[List[FeatureSet], FeatureSet]
         """
         if not isinstance(feature_sets, list):
@@ -235,6 +239,7 @@ class Client:
     def list_feature_sets(self) -> List[FeatureSet]:
         """
         Retrieve a list of feature sets from Feast Core
+
         :return: Returns a list of feature sets
         """
         self._connect_core()
@@ -262,10 +267,10 @@ class Client:
     ) -> Union[FeatureSet, None]:
         """
         Retrieve a single feature set from Feast Core
+
         :param name: (str) Name of feature set
         :param version: (int) Version of feature set
-        :param fail_if_missing: (bool) Throws an exception if the feature set is not
-         found
+        :param fail_if_missing: (bool) Throws an exception if the feature set is not found
         :return: Returns a single feature set
 
         """
@@ -290,6 +295,7 @@ class Client:
     def list_entities(self) -> Dict[str, Entity]:
         """
         Returns a dictionary of entities across all feature sets
+
         :return: Dictionary of entity name to Entity
         """
         entities_dict = OrderedDict()
@@ -304,16 +310,16 @@ class Client:
         """
         Retrieves historical features from a Feast Serving deployment.
 
-        Args:
-            feature_ids: List of feature ids that will be returned for each entity.
-            Each feature id should have the following format "feature_set_name:version:feature_name".
-
-            entity_rows: Pandas dataframe containing entities and a 'datetime' column. Each entity in
-            a feature set must be present as a column in this dataframe. The datetime column must
-            contain timestamps in datetime64 format
-
-        Returns:
-            Feast batch retrieval job: feast.job.Job
+        :param feature_ids: List of feature ids that will be returned for each 
+          entity. Each feature id should have the following format 
+          "feature_set_name:version:feature_name".
+          
+        :param entity_rows: Pandas dataframe containing entities and a 
+          'datetime' column. Each entity in a feature set must be present as a 
+          column in this dataframe. The datetime column must contain timestamps 
+          in datetime64 format.
+        
+        :return: Feast batch retrieval job instance
             
         Example usage:
         ============================================================
@@ -393,6 +399,7 @@ class Client:
     ):
         """
         Validate whether an entity_row dataframe contains the correct information for batch retrieval
+
         :param entity_rows: Pandas dataframe containing entities and datetime column. Each entity in a feature set
         must be present as a column in this dataframe.
         :param feature_sets_request: Feature sets that will
@@ -426,10 +433,10 @@ class Client:
     ) -> GetOnlineFeaturesResponse:
         """
         Retrieves the latest online feature data from Feast Serving
+
         :param feature_ids: List of feature Ids in the following format
                             [feature_set_name]:[version]:[feature_name]
-                            example: ["feature_set_1:6:my_feature_1",
-                                     "feature_set_1:6:my_feature_2",]
+                            example: ["feature_set_1:6:my_feature_1","feature_set_1:6:my_feature_2",]
 
         :param entity_rows: List of GetFeaturesRequest.EntityRow where each row
                             contains entities. Timestamp should not be set for
@@ -465,22 +472,13 @@ class Client:
         """
         Loads data into Feast for a specific feature set.
 
-        :param feature_set: (str, FeatureSet) Feature set object or the
-        string name of the feature set (without a version)
-        :param dataframe:
-        Pandas dataframe to load into Feast for this feature set
-        :param
-        version: (int) Version of the feature set for which this ingestion
-        should happen
-        :param force_update: (bool) Automatically update
-        feature set based on data frame before ingesting data
-        :param max_workers: Number of
-        worker processes to use to encode the dataframe
-        :param
-        disable_progress_bar: Disable progress bar during ingestion
-        :param
-        chunk_size: Number of rows per chunk to encode before ingesting to
-        Feast
+        :param feature_set: (str, FeatureSet) Feature set object or the string name of the feature set (without a version)
+        :param dataframe: Pandas dataframe to load into Feast for this feature set
+        :param version: (int) Version of the feature set for which this ingestion should happen
+        :param force_update: (bool) Automatically update feature set based on data frame before ingesting data
+        :param max_workers: Number of worker processes to use to encode the dataframe
+        :param disable_progress_bar: Disable progress bar during ingestion
+        :param chunk_size: Number of rows per chunk to encode before ingesting to Feast
         """
         if isinstance(feature_set, FeatureSet):
             name = feature_set.name
