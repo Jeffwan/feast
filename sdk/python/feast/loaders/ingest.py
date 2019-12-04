@@ -155,7 +155,7 @@ def ingest_table_to_kafka(
     validate_dataframe(ref_df, feature_set)
 
     # Create queue through which encoding and production will coordinate
-    row_queue = Queue()
+    row_queue = Queue(maxsize=chunk_size * max_workers)
 
     # Create a context object to send and receive information across processes
     ctx = multiprocessing.Manager().dict(
@@ -190,8 +190,6 @@ def ingest_table_to_kafka(
             df_datetime_dtype=df_datetime_dtype,
         ):
             row_queue.put(row)
-            while row_queue.qsize() > chunk_size:
-                time.sleep(0.1)
         row_queue.put(None)
     except Exception as ex:
         _logger.error(f"Exception occurred: {ex}")
