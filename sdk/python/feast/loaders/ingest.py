@@ -93,18 +93,25 @@ def _encode_pa_chunks(
     Each batch will have its rows spread across a pool of workers to be
     transformed into FeatureRow objects.
 
-    :param tbl: PyArrow table to be processed.
-    :type tbl: pa.lib.Table
-    :param fs: FeatureSet describing PyArrow table.
-    :type fs: FeatureSet
-    :param max_workers: Maximum number of workers.
-    :type max_workers: int
-    :param df_datetime_dtype: Pandas dtype of datetime column.
-    :type df_datetime_dtype: pd.DataFrame.dtypes
-    :param chunk_size: Maximum size of each chunk when PyArrow table is batched.
-    :type chunk_size: int
-    :return: Iterable FeatureRow object.
-    :rtype: Iterable[FeatureRow]
+    Args:
+        tbl (pa.lib.Table):
+            PyArrow table to be processed.
+
+        fs (feast.feature_set.FeatureSet):
+            FeatureSet describing PyArrow table.
+
+        max_workers (int):
+            Maximum number of workers to spawn.
+
+        df_datetime_dtype (pandas.DataFrame.dtypes):
+            Pandas dtype of datetime column.
+
+        chunk_size (int):
+            Maximum size of each chunk when PyArrow table is batched.
+
+    Returns:
+        None:
+            None
     """
     pool = Pool(max_workers)
 
@@ -122,7 +129,7 @@ def _encode_pa_chunks(
 
     pool.close()
     pool.join()
-    return
+    return None
 
 
 def _encode_pa_tables(
@@ -139,13 +146,17 @@ def _encode_pa_tables(
     Each parquet file will be read into as a table and encoded into FeatureRows
     using a pool of max_workers workers.
 
-    :param file_dir: File directory of all the parquet files to encode. All the
-        parquet files must have the same schema.
-    :type file_dir: typing.List[str]
-    :param fs: FeatureSet describing parquet files.
-    :type fs: feast.feature_set.FeatureSet
-    :return: List of FeatureRows encoded from the parquet file.
-    :rtype: List[FeatureRow]
+    Args:
+        file_dir (typing.List[str]):
+            File directory of all the parquet files to encode.
+            All parquet files must have the same schema.
+
+        fs (feast.feature_set.FeatureSet):
+            FeatureSet describing parquet files.
+
+    Returns:
+        List[FeatureRow]:
+            List of FeatureRows encoded from the parquet file.
     """
     # Read parquet file as a PyArrow table
     table = pq.read_table(file_dir)
@@ -192,6 +203,25 @@ def get_feature_row_chunks(
         fs: FeatureSet,
         max_workers: int
 ) -> Iterable[List[FeatureRow]]:
+    """
+    Iterator function to encode a PyArrow table read from a parquet file to
+    FeatureRow(s).
+
+    Args:
+        files (typing.List[str]):
+            File directory of all the parquet files to encode.
+            All parquet files must have the same schema.
+
+        fs (feast.feature_set.FeatureSet):
+            FeatureSet describing parquet files.
+
+        max_workers (int):
+            Maximum number of workers to spawn.
+
+    Returns:
+        Iterable[List[FeatureRow]]:
+            Iterable list of FeatureRow(s).
+    """
     pool = Pool(max_workers)
     func = partial(_encode_pa_chunks, feature_set=fs)
     for chunk in pool.imap_unordered(func, files):
@@ -210,20 +240,28 @@ def ingest_table_to_kafka(
     """
     Ingest a PyArrow Table into kafka.
 
-    :param feature_set: FeatureSet describing PyArrow table.
-    :type feature_set: FeatureSet
-    :param table: PyArrow table to be processed.
-    :type table: pa.lib.Table
-    :param max_workers: Maximum number of workers.
-    :type max_workers: int
-    :param chunk_size: Maximum size of each chunk when PyArrow table is batched.
-    :type chunk_size: int
-    :param disable_pbar: Flag to indicate if tqdm progress bar should be
-        disabled.
-    :type disable_pbar: bool Disable printing of ingestion progress bar
-    :param timeout: Maximum time before method times out.
-    :return: None
-    :rtype: None
+    Args:
+        feature_set (feast.feature_set.FeatureSet):
+            FeatureSet describing PyArrow table.
+
+        table (pa.lib.Table):
+            PyArrow table to be processed.
+
+        max_workers (int):
+            Maximum number of workers.
+
+        chunk_size (int):
+            Maximum size of each chunk when PyArrow table is batched.
+
+        disable_pbar (bool):
+            Disable printing of ingestion progress bar.
+
+        timeout (int):
+            Maximum time before method times out.
+
+    Returns:
+        None:
+            None
     """
     pbar = tqdm(unit="rows", total=table.num_rows, disable=disable_pbar)
 

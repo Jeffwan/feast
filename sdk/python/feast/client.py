@@ -473,28 +473,36 @@ class Client:
         """
         Loads data into Feast for a specific feature set.
 
-        :param feature_set: Feature set object or the string name of the
-            feature set (without a version).
-        :type feature_set: Union[str, FeatureSet]
-        :param source:
-            Either a file path or Pandas Dataframe to ingest into Feast
-            Files that are currently supported:
-                * parquet
-                * csv
-                * json
-        :type source: Union[pd.DataFrame, str]
-        :param chunk_size: Amount of rows to load and ingest at a time.
-        :type chunk_size: int
-        :param version: Feature set version.
-        :type version: int
-        :param force_update: Automatically update feature set based on.
-        :type force_update: bool
-        :param max_workers: Number of worker processes to use to encode values.
-        :type max_workers: int
-        :param disable_progress_bar: Disable printing of progress statistics.
-        :type disable_progress_bar: bool
-        :return: None
-        :rtype: None
+        Args:
+            feature_set (typing.Union[str, FeatureSet]):
+                Feature set object or the string name of the feature set
+                (without a version).
+
+            source (typing.Union[pd.DataFrame, str]):
+                Either a file path or Pandas Dataframe to ingest into Feast
+                Files that are currently supported:
+                    * parquet
+                    * csv
+                    * json
+
+            chunk_size (int):
+                Amount of rows to load and ingest at a time.
+
+            version (int):
+                Feature set version.
+
+            force_update (bool):
+                Automatically update feature set based on.
+
+            max_workers (int):
+                Number of worker processes to use to encode values.
+
+            disable_progress_bar (bool):
+                Disable printing of progress statistics.
+
+        Returns:
+            None:
+                None
         """
 
         ctx = {"success_count": 0, "error_count": 0, "last_exception": ""}

@@ -30,46 +30,55 @@ from feast.value_type import ValueType
 from google.protobuf.timestamp_pb2 import Timestamp
 from pyarrow.lib import TimestampType
 
-# Mapping of PyArrow type to attribute name in Feast ValueType strings
-STR_TYPE_MAP = {
-    "timestamp[ms]": "int64_val",
-    "int32": "int32_val",
-    "int64": "int64_val",
-    "double": "double_val",
-    "float": "float_val",
-    "string": "string_val",
-    "binary": "bytes_val",
-    "bool": "bool_val",
-    "list<item: int32>": "int32_list_val",
-    "list<item: int64>": "int64_list_val",
-    "list<item: double>": "double_list_val",
-    "list<item: float>": "float_list_val",
-    "list<item: string>": "string_list_val",
-    "list<item: binary>": "bytes_list_val",
-    "list<item: bool>": "bool_list_val",
-}
-
 
 def pa_to_feast_value_attr(pa_type: object):
     """
     Returns the equivalent Feast ValueType string for the given pa.lib type.
 
-    :param pa_type: PyArrow type.
-    :type pa_type: object
-    :return: Feast attribute name in Feast ValueType string-ed representation.
-    :rtype: str
+    Args:
+        pa_type (object):
+            PyArrow type.
+
+    Returns:
+        str:
+            Feast attribute name in Feast ValueType string-ed representation.
     """
-    return STR_TYPE_MAP[pa_type.__str__()]
+    # Mapping of PyArrow type to attribute name in Feast ValueType strings
+    type_map = {
+        "timestamp[ms]": "int64_val",
+        "int32": "int32_val",
+        "int64": "int64_val",
+        "double": "double_val",
+        "float": "float_val",
+        "string": "string_val",
+        "binary": "bytes_val",
+        "bool": "bool_val",
+        "list<item: int32>": "int32_list_val",
+        "list<item: int64>": "int64_list_val",
+        "list<item: double>": "double_list_val",
+        "list<item: float>": "float_list_val",
+        "list<item: string>": "string_list_val",
+        "list<item: binary>": "bytes_list_val",
+        "list<item: bool>": "bool_list_val",
+    }
+
+    return type_map[pa_type.__str__()]
 
 
 def pa_to_value_type(pa_type: object):
     """
     Returns the equivalent Feast ValueType for the given pa.lib type.
-    :param pa_type: PyArrow type.
-    :type pa_type: object
-    :return: Feast ValueType.
-    :rtype: feast.types.Value_pb2.ValueType
+
+    Args:
+        pa_type (object):
+            PyArrow type.
+
+    Returns:
+        feast.types.Value_pb2.ValueType:
+            Feast ValueType.
+
     """
+
     # Mapping of PyArrow to attribute name in Feast ValueType
     type_map = {
         "timestamp[ms]": ProtoValueType.INT64,
