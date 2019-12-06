@@ -12,10 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timezone
-from feast.value_type import ValueType
+from feast.constants import DATETIME_COLUMN
+from feast.types import (
+    FeatureRow_pb2 as FeatureRowProto,
+    Field_pb2 as FieldProto,
+)
 from feast.types.Value_pb2 import (
     Value as ProtoValue,
     ValueType as ProtoValueType,
@@ -27,9 +32,8 @@ from feast.types.Value_pb2 import (
     StringList,
     FloatList,
 )
-from feast.types import FeatureRow_pb2 as FeatureRowProto, Field_pb2 as FieldProto
+from feast.value_type import ValueType
 from google.protobuf.timestamp_pb2 import Timestamp
-from feast.constants import DATETIME_COLUMN
 
 # Mapping of feast value type to Pandas DataFrame dtypes
 # Integer and floating values are all 64-bit for better integration
@@ -105,9 +109,8 @@ def dtype_to_value_type(dtype):
 
 # TODO: to pass test_importer
 def pandas_dtype_to_feast_value_type(
-    name: str, value, recurse: bool = True
+        name: str, value, recurse: bool = True
 ) -> ValueType:
-
     type_name = type(value).__name__
 
     type_map = {
@@ -148,8 +151,8 @@ def pandas_dtype_to_feast_value_type(
                 )
                 # Validate whether the type stays consistent
                 if (
-                    list_item_value_types
-                    and not list_item_value_types == list_item_value_type
+                        list_item_value_types
+                        and not list_item_value_types == list_item_value_type
                 ):
                     raise ValueError(
                         f"List value type for field {name} is inconsistent. "
@@ -161,7 +164,9 @@ def pandas_dtype_to_feast_value_type(
             return ValueType[list_item_value_types.name + "_LIST"]
         else:
             raise ValueError(
-                f"Value type for field {name} is {value.dtype.__str__()} but recursion is not allowed. Array types can only be one level deep."
+                f"Value type for field {name} is {value.dtype.__str__()} but "
+                f"recursion is not allowed. Array types can only be one level "
+                f"deep."
             )
 
     return type_map[value.dtype.__str__()]
@@ -181,7 +186,8 @@ def convert_df_to_feature_rows(dataframe: pd.DataFrame, feature_set):
                 [
                     FieldProto.Field(
                         name=field.name,
-                        value=pd_value_to_proto_value(field.dtype, row[field.name]),
+                        value=pd_value_to_proto_value(field.dtype,
+                                                      row[field.name]),
                     )
                 ]
             )
@@ -191,7 +197,7 @@ def convert_df_to_feature_rows(dataframe: pd.DataFrame, feature_set):
 
 
 def convert_dict_to_proto_values(
-    row: dict, df_datetime_dtype: pd.DataFrame.dtypes, feature_set
+        row: dict, df_datetime_dtype: pd.DataFrame.dtypes, feature_set
 ) -> FeatureRowProto.FeatureRow:
     """
     Encode a dictionary describing a feature row into a FeatureRows object.
@@ -231,20 +237,22 @@ def pd_datetime_to_timestamp_proto(dtype, value) -> Timestamp:
         # If timestamp does not contain timezone, we assume it is of local
         # timezone and adjust it to UTC
         local_timezone = datetime.now(timezone.utc).astimezone().tzinfo
-        value = value.tz_localize(local_timezone).tz_convert("UTC").tz_localize(None)
+        value = value.tz_localize(local_timezone).tz_convert("UTC").tz_localize(
+            None)
         return Timestamp(seconds=int(value.timestamp()))
     if dtype.__str__() == "datetime64[ns, UTC]":
         return Timestamp(seconds=int(value.timestamp()))
     else:
-        return Timestamp(seconds=np.datetime64(value).astype("int64") // 1000000)
+        return Timestamp(
+            seconds=np.datetime64(value).astype("int64") // 1000000)
 
 
 def type_err(item, dtype):
-    raise ValueError(f'Value "{item}" is of type {type(item)} not of type {dtype}')
+    raise ValueError(
+        f'Value "{item}" is of type {type(item)} not of type {dtype}')
 
 
 def pd_value_to_proto_value(feast_value_type, value) -> ProtoValue:
-
     # Detect list type and handle separately
     if "list" in feast_value_type.name.lower():
 
@@ -276,7 +284,8 @@ def pd_value_to_proto_value(feast_value_type, value) -> ProtoValue:
             return ProtoValue(
                 int32_list_val=Int32List(
                     val=[
-                        item if type(item) is np.int32 else type_err(item, np.int32)
+                        item if type(item) is np.int32 else type_err(item,
+                                                                     np.int32)
                         for item in value
                     ]
                 )

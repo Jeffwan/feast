@@ -13,35 +13,25 @@
 # limitations under the License.
 
 
-import logging
-
-import os
-import pandas as pd
-from math import ceil
-from multiprocessing import Process, Queue, cpu_count
-from typing import List, Optional
 from collections import OrderedDict
 from typing import Dict
-from feast.source import Source
-from feast.type_map import dtype_to_value_type
-from pandas.api.types import is_datetime64_ns_dtype
+from typing import List, Optional
+
+import pandas as pd
+from feast.core.FeatureSet_pb2 import FeatureSetSpec as FeatureSetSpecProto
 from feast.entity import Entity
 from feast.feature import Feature, Field
-from feast.core.FeatureSet_pb2 import FeatureSetSpec as FeatureSetSpecProto
-from feast.types import FeatureRow_pb2 as FeatureRow
-from google.protobuf.timestamp_pb2 import Timestamp
-from google.protobuf.duration_pb2 import Duration
-from kafka import KafkaProducer
-from tqdm import tqdm
-from feast.type_map import pandas_dtype_to_feast_value_type
-from feast.types import FeatureRow_pb2 as FeatureRowProto, Field_pb2 as FieldProto
-from feast.type_map import pd_value_to_proto_value
-from google.protobuf.json_format import MessageToJson
-import yaml
-from google.protobuf import json_format
-from feast.source import KafkaSource
-from feast.type_map import DATETIME_COLUMN
 from feast.loaders import yaml as feast_yaml
+from feast.source import Source
+from feast.type_map import DATETIME_COLUMN
+from feast.type_map import pandas_dtype_to_feast_value_type
+from google.protobuf import json_format
+from google.protobuf.duration_pb2 import Duration
+from google.protobuf.json_format import MessageToJson
+from pandas.api.types import is_datetime64_ns_dtype
+import pyarrow as pa
+from pyarrow.lib import TimestampType
+from feast.pyarrow_type_map import pa_to_feast_value_type
 
 
 class FeatureSet:
@@ -339,6 +329,136 @@ class FeatureSet:
         self._fields = new_fields
         print(output_log)
 
+    def infer_fields_from_pa(
+            self, table: pa.lib.Table,
+            entities: Optional[List[Entity]] = None,
+            features: Optional[List[Feature]] = None,
+            replace_existing_features: bool = False,
+            replace_existing_entities: bool = False,
+            discard_unused_fields: bool = False
+    ) -> None:
+        """
+        Adds fields (Features or Entities) to a feature set based on the schema
+        of a PyArrow table. Only PyArrow tables are supported. All columns are
+        detected as features, so setting at least one entity manually is
+        advised.
+
+        :param table: PyArrow table to read schema from.
+        :type table: pyarrow.lib.Table
+        :param entities: List of entities that will be set manually and not
+            inferred. These will take precedence over any existing entities or
+            entities found in the PyArrow table.
+        :type entities: Optional[List[Entity]]
+        :param features: List of features that will be set manually and not
+            inferred. These will take precedence over any existing feature or
+            features found in the PyArrow table.
+        :type features: Optional[List[Feature]]
+        :param replace_existing_features: Boolean flag. If true, will replace
+            existing features in this feature set with features found in
+            dataframe. If false, will skip conflicting features.
+        :type replace_existing_features: bool
+        :param replace_existing_entities: Boolean flag. If true, will replace
+        existing entities in this feature set with features found in dataframe.
+        If false, will skip conflicting entities.
+        :type replace_existing_entities: bool
+        :param discard_unused_fields: Boolean flag. Setting this to True will
+            discard any existing fields that are not found in the dataset or
+            provided by the user.
+        :type discard_unused_fields: bool
+        :return: None
+        :rtype: None
+        """
+        if entities is None:
+            entities = list()
+        if features is None:
+            features = list()
+
+        # Validate whether the datetime column exists with the right name
+        if DATETIME_COLUMN not in table.column_names:
+            raise Exception("No column 'datetime'")
+
+        # Validate the date type for the datetime column
+        if not isinstance(table.column(DATETIME_COLUMN).type, TimestampType):
+            raise Exception(
+                "Column 'datetime' does not have the correct type: datetime64[ms]"
+            )
+
+        # Create dictionary of fields that will not be inferred (manually set)
+        provided_fields = OrderedDict()
+
+        for field in entities + features:
+            if not isinstance(field, Field):
+                raise Exception(f"Invalid field object type provided {type(field)}")
+            if field.name not in provided_fields:
+                provided_fields[field.name] = field
+            else:
+                raise Exception(f"Duplicate field name detected {field.name}.")
+
+        new_fields = self._fields.copy()
+        output_log = ""
+
+        # Add in provided fields
+        for name, field in provided_fields.items():
+            if name in new_fields.keys():
+                upsert_message = "created"
+            else:
+                upsert_message = "updated (replacing an existing field)"
+
+            output_log += (
+                f"{type(field).__name__} {field.name}"
+                f"({field.dtype}) manually {upsert_message}.\n"
+            )
+            new_fields[name] = field
+
+        # Iterate over all of the column names and create features
+        for column in table.column_names:
+            column = column.strip()
+
+            # Skip datetime column
+            if DATETIME_COLUMN in column:
+                continue
+
+            # Skip user provided fields
+            if column in provided_fields.keys():
+                continue
+
+            # Only overwrite conflicting fields if replacement is allowed
+            if column in new_fields:
+                if (
+                        isinstance(self._fields[column], Feature)
+                        and not replace_existing_features
+                ):
+                    continue
+
+                if (
+                        isinstance(self._fields[column], Entity)
+                        and not replace_existing_entities
+                ):
+                    continue
+
+            # Store this fields as a feature
+            # TODO: (Minor) Change the parameter from dtype to patype
+            new_fields[column] = Feature(
+                name=column,
+                dtype=self._infer_pa_column_type(table.column(column))
+            )
+
+            output_log += f"{type(new_fields[column]).__name__} {new_fields[column].name} ({new_fields[column].dtype}) added from PyArrow Table.\n"
+
+        # Discard unused fields from feature set
+        if discard_unused_fields:
+            keys_to_remove = []
+            for key in new_fields.keys():
+                if not (key in table.column_names or key in provided_fields.keys()):
+                    output_log += f"{type(new_fields[key]).__name__} {new_fields[key].name} ({new_fields[key].dtype}) removed because it is unused.\n"
+                    keys_to_remove.append(key)
+            for key in keys_to_remove:
+                del new_fields[key]
+
+        # Update feature set
+        self._fields = new_fields
+        print(output_log)
+
     def _infer_pd_column_type(self, column, series, rows_to_sample):
         dtype = None
         sample_count = 0
@@ -366,6 +486,19 @@ class FeatureSet:
                 dtype = current_dtype
 
         return dtype
+
+    def _infer_pa_column_type(self, column: pa.lib.ChunkedArray):
+        """
+        Infers the PyArrow column type.
+
+        :param column: Column from a PyArrow table
+        :type column: pa.lib.ChunkedArray
+        :return:
+        :rtype:
+        """
+        # Validates the column to ensure that value types are consistent
+        column.validate()
+        return pa_to_feast_value_type(column)
 
     def _update_from_feature_set(self, feature_set, is_dirty: bool = True):
 

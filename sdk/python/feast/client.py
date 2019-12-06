@@ -13,11 +13,13 @@
 # limitations under the License.
 import logging
 import os
+import shutil
 import sys
+import time
+import uuid
 from collections import OrderedDict
 from typing import Dict, Union
 from typing import List
-from urllib.parse import urlparse
 
 import grpc
 import pandas as pd
@@ -37,7 +39,8 @@ from feast.exceptions import format_grpc_exception
 from feast.feature_set import FeatureSet, Entity
 from feast.job import Job
 from feast.loaders.file import export_dataframe_to_staging_location
-from feast.loaders.ingest import ingest_table_to_kafka
+from feast.loaders.ingest import KAFKA_CHUNK_PRODUCTION_TIMEOUT
+from feast.loaders.ingest import get_feature_row_chunks, ingest_table_to_kafka
 from feast.serving.ServingService_pb2 import GetFeastServingInfoResponse
 from feast.serving.ServingService_pb2 import (
     GetOnlineFeaturesRequest,
@@ -50,6 +53,8 @@ from feast.serving.ServingService_pb2 import (
     FeastServingType,
 )
 from feast.serving.ServingService_pb2_grpc import ServingServiceStub
+from kafka import KafkaProducer
+from tqdm import tqdm
 
 _logger = logging.getLogger(__name__)
 
@@ -455,6 +460,179 @@ class Client:
         else:
             return response
 
+    def ingest_parquet(
+            self,
+            feature_set: Union[str, FeatureSet],
+            source: Union[pd.DataFrame, str],
+            chunk_size: int,
+            version: int = None,
+            force_update: bool = False,
+            max_workers: int = CPU_COUNT - 1,
+            disable_progress_bar: bool = False,
+    ) -> None:
+        """
+        Loads data into Feast for a specific feature set.
+
+        :param feature_set: Feature set object or the string name of the
+            feature set (without a version).
+        :type feature_set: Union[str, FeatureSet]
+        :param source:
+            Either a file path or Pandas Dataframe to ingest into Feast
+            Files that are currently supported:
+                * parquet
+                * csv
+                * json
+        :type source: Union[pd.DataFrame, str]
+        :param chunk_size: Amount of rows to load and ingest at a time.
+        :type chunk_size: int
+        :param version: Feature set version.
+        :type version: int
+        :param force_update: Automatically update feature set based on.
+        :type force_update: bool
+        :param max_workers: Number of worker processes to use to encode values.
+        :type max_workers: int
+        :param disable_progress_bar: Disable printing of progress statistics.
+        :type disable_progress_bar: bool
+        :return: None
+        :rtype: None
+        """
+
+        ctx = {"success_count": 0, "error_count": 0, "last_exception": ""}
+
+        # Callback for failed production to Kafka
+        def on_error(e):
+            # Save last exception
+            ctx["last_exception"] = e
+
+            # Increment error count
+            if "error_count" in ctx:
+                ctx["error_count"] += 1
+            else:
+                ctx["error_count"] = 1
+
+        # Callback for succeeded production to Kafka
+        def on_success(meta):
+            pbar.update()
+
+        temp_dir = "_feast/"
+
+        # Create a temporary work dir
+        try:
+            os.mkdir(temp_dir)
+        except FileExistsError as e:
+            print(e.strerror)
+
+        if isinstance(feature_set, FeatureSet):
+            name = feature_set.name
+            if version is None:
+                version = feature_set.version
+        elif isinstance(feature_set, str):
+            name = feature_set
+        else:
+            raise Exception(f"Feature set name must be provided")
+
+        # Read table and get row count
+        table = _read_table_from_source(source)
+        row_count = table.num_rows
+
+        time_start = time.time()
+
+        # Update the feature set based on PyArrow table schema
+        if force_update:
+            feature_set.infer_fields_from_pa(
+                table=table,
+                discard_unused_fields=True,
+                replace_existing_features=True
+            )
+            self.apply(feature_set)
+
+        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+
+        # Split table into smaller parquet files
+        batches = table.to_batches(
+            max_chunksize=min(int(table.num_rows / max_workers), chunk_size))
+        tables = [pa.lib.Table.from_batches([batch]) for batch in batches]
+
+        print(f"Splitting parquet file into {len(tables)} chunks.")
+
+        for tbl in tables:
+            pa.parquet.write_table(tbl, temp_dir + str(uuid.uuid4()))
+
+        time_end = time.time()
+        exec_time = round(time_end - time_start, 2)
+        print(f"Took {exec_time}s to validate and split parquet file.")
+
+        # Remove PyArrow from memory
+        del table
+
+        # Progress bar will always display average rate
+        pbar = tqdm(total=row_count,
+                    unit="rows",
+                    smoothing=0,
+                    disable=disable_progress_bar)
+
+        # Get a list of all parquet files created
+        files = [temp_dir + x
+                 for x in os.listdir(temp_dir)
+                 if not x.startswith(".")]  # DO not read in .ds_store
+
+        # Kafka configs
+        brokers = feature_set.get_kafka_source_brokers()
+        topic = feature_set.get_kafka_source_topic()
+        producer = KafkaProducer(bootstrap_servers=brokers)
+        send = producer.send
+        if feature_set.source.source_type == "Kafka":
+            for chunk in get_feature_row_chunks(
+                    files=files, max_workers=max_workers, fs=feature_set):
+                pbar.update(1)
+
+                # Push FeatureRow in chunk to kafka
+                for row in chunk:
+                    send(topic, row.SerializeToString()).add_callback(
+                        on_success).add_callback(on_error())
+
+                # Force a flush
+                producer.flush(timeout=KAFKA_CHUNK_PRODUCTION_TIMEOUT)
+
+                # Remove chunk from memory
+                del chunk
+
+        else:
+            raise Exception(
+                f"Could not determine source type for feature set "
+                f'"{feature_set.name}" with source type '
+                f'"{feature_set.source.source_type}"'
+            )
+
+        # Refresh and close tqdm progress bar
+        pbar.refresh()
+        pbar.close()
+        print("Ingestion complete!")
+
+        failed_message = (
+            ""
+            if ctx["error_count"] == 0
+            else f"\nFail: {ctx['error_count']}/{table.num_rows}"
+        )
+
+        last_exception_message = (
+            ""
+            if ctx["last_exception"] == ""
+            else f"\nLast exception:\n{ctx['last_exception']}"
+        )
+        print(
+            f"\nIngestion statistics:"
+            f"\nSuccess: {ctx['success_count']}/{table.num_rows}"
+            f"{failed_message}"
+            f"{last_exception_message}"
+        )
+
+        # Cleanup, remove smaller parquet file(s) that were created
+        print("Removing temporary files...")
+        shutil.rmtree(temp_dir)
+
+        return None
+
     def ingest(
         self,
         feature_set: Union[str, FeatureSet],
@@ -554,6 +732,7 @@ def _read_table_from_source(source: Union[pd.DataFrame, str]) -> pa.lib.Table:
     """
     Infers a data source type (path or Pandas Dataframe) and reads it in as
     a PyArrow Table.
+
     :param source: Either a string path or Pandas dataframe
     :return: PyArrow table
     """

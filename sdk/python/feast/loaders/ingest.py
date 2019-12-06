@@ -4,15 +4,20 @@ import os
 import time
 from functools import partial
 from multiprocessing import Process, Queue, Pool
-from typing import Iterable
+from typing import Iterable, List
+
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
+from feast.constants import DATETIME_COLUMN
 from feast.feature_set import FeatureSet
-from feast.type_map import convert_df_to_feature_rows, convert_dict_to_proto_values
+from feast.pyarrow_type_map import pa_column_to_timestamp_proto_column, \
+    pa_column_to_proto_column
+from feast.type_map import convert_dict_to_proto_values
+from feast.types import Field_pb2 as FieldProto
 from feast.types.FeatureRow_pb2 import FeatureRow
 from kafka import KafkaProducer
 from tqdm import tqdm
-from feast.constants import DATETIME_COLUMN
 
 _logger = logging.getLogger(__name__)
 
@@ -85,7 +90,7 @@ def _encode_pa_chunks(
     Generator function to encode rows in PyArrow table to FeatureRows by
     breaking up the table into batches.
 
-    Each batch will have its rows spread accross a pool of workers to be
+    Each batch will have its rows spread across a pool of workers to be
     transformed into FeatureRow objects.
 
     :param tbl: PyArrow table to be processed.
@@ -120,6 +125,80 @@ def _encode_pa_chunks(
     return
 
 
+def _encode_pa_tables(
+        file_dir: List[str],
+        fs: FeatureSet,
+) -> List[FeatureRow]:
+    """
+    Helper function to encode a PyArrow table(s) read from parquet file(s) into
+    FeatureRows.
+
+    This function accepts a list of file directory pointing to many parquet
+    files. All parquet files must have the same schema.
+
+    Each parquet file will be read into as a table and encoded into FeatureRows
+    using a pool of max_workers workers.
+
+    :param file_dir: File directory of all the parquet files to encode. All the
+        parquet files must have the same schema.
+    :type file_dir: typing.List[str]
+    :param fs: FeatureSet describing parquet files.
+    :type fs: feast.feature_set.FeatureSet
+    :return: List of FeatureRows encoded from the parquet file.
+    :rtype: List[FeatureRow]
+    """
+    # Read parquet file as a PyArrow table
+    table = pq.read_table(file_dir)
+
+    # Add datetime column
+    datetime_col = pa_column_to_timestamp_proto_column(
+        table.column(DATETIME_COLUMN))
+
+    # Preprocess the columns by converting all its values to Proto values
+    proto_columns = {
+        field_name: pa_column_to_proto_column(field.dtype,
+                                              table.column(field_name))
+        for field_name, field in fs.fields.items()
+    }
+
+    feature_set = f"{fs.name}:{fs.version}"
+
+    # List to store result
+    feature_rows = []
+
+    # Loop optimization declaration
+    field = FieldProto.Field
+    proto_items = proto_columns.items()
+    append = feature_rows.append
+
+    # Iterate through the rows
+    for row_idx in range(table.num_rows):
+        feature_row = FeatureRow(event_timestamp=datetime_col[row_idx],
+                                 feature_set=feature_set)
+        # Loop optimization declaration
+        ext = feature_row.fields.extend
+
+        # Insert field from each column
+        for k, v in proto_items:
+            ext([field(name=k, value=v[row_idx])])
+
+        append(feature_row)
+
+    return feature_rows
+
+
+def get_feature_row_chunks(
+        files: List[str],
+        fs: FeatureSet,
+        max_workers: int
+) -> Iterable[List[FeatureRow]]:
+    pool = Pool(max_workers)
+    func = partial(_encode_pa_chunks, feature_set=fs)
+    for chunk in pool.imap_unordered(func, files):
+        yield chunk
+    return
+
+
 def ingest_table_to_kafka(
     feature_set: FeatureSet,
     table: pa.lib.Table,
@@ -129,6 +208,7 @@ def ingest_table_to_kafka(
     timeout: int = None,
 ) -> None:
     """
+    Ingest a PyArrow Table into kafka.
 
     :param feature_set: FeatureSet describing PyArrow table.
     :type feature_set: FeatureSet
@@ -155,7 +235,7 @@ def ingest_table_to_kafka(
     validate_dataframe(ref_df, feature_set)
 
     # Create queue through which encoding and production will coordinate
-    row_queue = Queue(maxsize=chunk_size * max_workers)
+    row_queue = Queue()
 
     # Create a context object to send and receive information across processes
     ctx = multiprocessing.Manager().dict(
@@ -190,6 +270,8 @@ def ingest_table_to_kafka(
             df_datetime_dtype=df_datetime_dtype,
         ):
             row_queue.put(row)
+            while row_queue.qsize() > chunk_size:
+                time.sleep(0.1)
         row_queue.put(None)
     except Exception as ex:
         _logger.error(f"Exception occurred: {ex}")
