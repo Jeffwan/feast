@@ -544,11 +544,9 @@ class Client:
                 discard_unused_fields=True,
                 replace_existing_features=True
             )
-            # TODO: Uncomment this after testing
-            # self.apply(feature_set)
+            self.apply(feature_set)
 
-        # TODO: Uncomment this after testing
-        # feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
 
         # Split table into smaller parquet files
         batches = table.to_batches(
