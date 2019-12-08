@@ -53,7 +53,7 @@ from feast.serving.ServingService_pb2 import (
     FeastServingType,
 )
 from feast.serving.ServingService_pb2_grpc import ServingServiceStub
-from kafka import KafkaProducer
+from confluent_kafka import Producer
 from tqdm import tqdm
 
 _logger = logging.getLogger(__name__)
@@ -460,7 +460,7 @@ class Client:
         else:
             return response
 
-    def ingest_parquet(
+    def ingest(
             self,
             feature_set: Union[str, FeatureSet],
             source: Union[pd.DataFrame, str],
@@ -505,23 +505,6 @@ class Client:
                 None
         """
 
-        ctx = {"success_count": 0, "error_count": 0, "last_exception": ""}
-
-        # Callback for failed production to Kafka
-        def on_error(e):
-            # Save last exception
-            ctx["last_exception"] = e
-
-            # Increment error count
-            if "error_count" in ctx:
-                ctx["error_count"] += 1
-            else:
-                ctx["error_count"] = 1
-
-        # Callback for succeeded production to Kafka
-        def on_success(meta):
-            pbar.update()
-
         if isinstance(feature_set, FeatureSet):
             name = feature_set.name
             if version is None:
@@ -555,7 +538,7 @@ class Client:
 
         print(f"Splitting parquet file into {len(tables)} chunks.")
 
-        temp_dir = "_feast/"
+        temp_dir = f"_feast_{time.time_ns()}/"
 
         # Create a temporary work dir
         try:
@@ -587,12 +570,15 @@ class Client:
         # Kafka configs
         brokers = feature_set.get_kafka_source_brokers()
         topic = feature_set.get_kafka_source_topic()
-        # producer = Producer({"bootstrap.servers": brokers})
-        producer = KafkaProducer(bootstrap_servers=brokers)
-        send = producer.send
-        # send = producer.produce
+        producer = Producer({"bootstrap.servers": brokers})
+
+        # Code optimizations
+        send = producer.produce
         flush = producer.flush
-        # update = pbar.update
+        update = pbar.update
+
+        # Define tracker context
+        ctx = {"success_count": 0, "error_count": 0, "last_exception": ""}
 
         if feature_set.source.source_type == "Kafka":
             for chunk in get_feature_row_chunks(
@@ -600,8 +586,18 @@ class Client:
 
                 # Push FeatureRow in chunk to kafka
                 for row in chunk:
-                    send(topic, row.SerializeToString()).add_callback(
-                        on_success).add_errback(on_error)
+                    try:
+                        send(topic, row.SerializeToString())
+                        update(1)
+                    except Exception as e:
+                        # Save last exception
+                        ctx["last_exception"] = e
+
+                        # Increment error count
+                        if "error_count" in ctx:
+                            ctx["error_count"] += 1
+                        else:
+                            ctx["error_count"] = 1
 
                 # Force a flush
                 flush(timeout=KAFKA_CHUNK_PRODUCTION_TIMEOUT)
@@ -649,7 +645,7 @@ class Client:
 
         return None
 
-    def ingest(
+    def ingest_old(
         self,
         feature_set: Union[str, FeatureSet],
         source: Union[pd.DataFrame, str],
