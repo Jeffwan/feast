@@ -538,7 +538,7 @@ class Client:
 
         print(f"Splitting parquet file into {len(tables)} chunks.")
 
-        temp_dir = f"_feast_{time.time_ns()}/"
+        temp_dir = f"_feast_{int(time.time())}/"
 
         # Create a temporary work dir
         try:
