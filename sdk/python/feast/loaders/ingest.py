@@ -223,7 +223,7 @@ def get_feature_row_chunks(
             Iterable list of FeatureRow(s).
     """
     pool = Pool(max_workers)
-    func = partial(_encode_pa_chunks, feature_set=fs)
+    func = partial(_encode_pa_tables, fs=fs)
     for chunk in pool.imap_unordered(func, files):
         yield chunk
     return

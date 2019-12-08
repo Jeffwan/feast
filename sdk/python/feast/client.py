@@ -522,14 +522,6 @@ class Client:
         def on_success(meta):
             pbar.update()
 
-        temp_dir = "_feast/"
-
-        # Create a temporary work dir
-        try:
-            os.mkdir(temp_dir)
-        except FileExistsError as e:
-            print(e.strerror)
-
         if isinstance(feature_set, FeatureSet):
             name = feature_set.name
             if version is None:
@@ -552,9 +544,11 @@ class Client:
                 discard_unused_fields=True,
                 replace_existing_features=True
             )
-            self.apply(feature_set)
+            # TODO: Uncomment this after testing
+            # self.apply(feature_set)
 
-        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+        # TODO: Uncomment this after testing
+        # feature_set = self.get_feature_set(name, version, fail_if_missing=True)
 
         # Split table into smaller parquet files
         batches = table.to_batches(
@@ -562,6 +556,14 @@ class Client:
         tables = [pa.lib.Table.from_batches([batch]) for batch in batches]
 
         print(f"Splitting parquet file into {len(tables)} chunks.")
+
+        temp_dir = "_feast/"
+
+        # Create a temporary work dir
+        try:
+            os.mkdir(temp_dir)
+        except FileExistsError as e:
+            print("Temporary directory exists")
 
         for tbl in tables:
             pa.parquet.write_table(tbl, temp_dir + str(uuid.uuid4()))
@@ -587,20 +589,24 @@ class Client:
         # Kafka configs
         brokers = feature_set.get_kafka_source_brokers()
         topic = feature_set.get_kafka_source_topic()
+        # producer = Producer({"bootstrap.servers": brokers})
         producer = KafkaProducer(bootstrap_servers=brokers)
         send = producer.send
+        # send = producer.produce
+        flush = producer.flush
+        # update = pbar.update
+
         if feature_set.source.source_type == "Kafka":
             for chunk in get_feature_row_chunks(
-                    files=files, max_workers=max_workers, fs=feature_set):
-                pbar.update(1)
+                    files=files, fs=feature_set, max_workers=max_workers):
 
                 # Push FeatureRow in chunk to kafka
                 for row in chunk:
                     send(topic, row.SerializeToString()).add_callback(
-                        on_success).add_callback(on_error())
+                        on_success).add_errback(on_error)
 
                 # Force a flush
-                producer.flush(timeout=KAFKA_CHUNK_PRODUCTION_TIMEOUT)
+                flush(timeout=KAFKA_CHUNK_PRODUCTION_TIMEOUT)
 
                 # Remove chunk from memory
                 del chunk
@@ -614,13 +620,17 @@ class Client:
 
         # Refresh and close tqdm progress bar
         pbar.refresh()
+
+        # Using progress bar as counter is much faster than incrementing dict
+        ctx["success_count"] = pbar.n
+
         pbar.close()
         print("Ingestion complete!")
 
         failed_message = (
             ""
             if ctx["error_count"] == 0
-            else f"\nFail: {ctx['error_count']}/{table.num_rows}"
+            else f"\nFail: {ctx['error_count']}/{row_count}"
         )
 
         last_exception_message = (
@@ -630,7 +640,7 @@ class Client:
         )
         print(
             f"\nIngestion statistics:"
-            f"\nSuccess: {ctx['success_count']}/{table.num_rows}"
+            f"\nSuccess: {ctx['success_count']}/{row_count}"
             f"{failed_message}"
             f"{last_exception_message}"
         )
