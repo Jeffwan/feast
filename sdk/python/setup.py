@@ -43,6 +43,7 @@ REQUIRED = [
     "pyarrow>=0.15.1",
     "numpy",
     "google",
+    "confluent_kafka"
 ]
 
 setup(
