@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
 import logging
 import os
 import shutil
@@ -68,9 +70,21 @@ TEMP_DIR = f"_feast_{int(time.time())}/"
 
 
 class Client:
+    """
+    Feast Client: Used for creating, managing, and retrieving features.
+    """
+
     def __init__(
         self, core_url: str = None, serving_url: str = None, verbose: bool = False
     ):
+        """
+        The Feast Client should be initialized with at least one service url
+
+        Args:
+            core_url: Feast Core URL. Used to manage features
+            serving_url: Feast Serving URL. Used to retrieve features
+            verbose: Enable verbose logging
+        """
         self._core_url = core_url
         self._serving_url = serving_url
         self._verbose = verbose
@@ -81,6 +95,10 @@ class Client:
 
     @property
     def core_url(self) -> str:
+        """
+        Retrieve Feast Core URL
+        """
+
         if self._core_url is not None:
             return self._core_url
         if os.getenv(FEAST_CORE_URL_ENV_KEY) is not None:
@@ -89,10 +107,19 @@ class Client:
 
     @core_url.setter
     def core_url(self, value: str):
+        """
+        Set the Feast Core URL
+
+        Returns:
+            Feast Core URL string
+        """
         self._core_url = value
 
     @property
     def serving_url(self) -> str:
+        """
+        Retrieve Serving Core URL
+        """
         if self._serving_url is not None:
             return self._serving_url
         if os.getenv(FEAST_SERVING_URL_ENV_KEY) is not None:
@@ -101,12 +128,17 @@ class Client:
 
     @serving_url.setter
     def serving_url(self, value: str):
+        """
+        Set the Feast Serving URL
+
+        Returns:
+            Feast Serving URL string
+        """
         self._serving_url = value
 
     def version(self):
         """
         Returns version information from Feast Core and Feast Serving
-        :return: Dictionary containing Core and Serving versions and status
         """
 
         self._connect_core()
@@ -146,9 +178,12 @@ class Client:
             },
         }
 
-    def _connect_core(self, skip_if_connected=True):
+    def _connect_core(self, skip_if_connected: bool = True):
         """
         Connect to Core API
+
+        Args:
+            skip_if_connected: Do not attempt to connect if already connected
         """
         if skip_if_connected and self._core_service_stub:
             return
@@ -174,6 +209,9 @@ class Client:
     def _connect_serving(self, skip_if_connected=True):
         """
         Connect to Serving API
+
+        Args:
+            skip_if_connected: Do not attempt to connect if already connected
         """
 
         if skip_if_connected and self._serving_service_stub:
@@ -199,8 +237,11 @@ class Client:
 
     def apply(self, feature_sets: Union[List[FeatureSet], FeatureSet]):
         """
-        Idempotently registers feature set(s) with Feast Core. Either a single feature set or a list can be provided.
-        :param feature_sets: Union[List[FeatureSet], FeatureSet]
+        Idempotently registers feature set(s) with Feast Core. Either a single
+        feature set or a list can be provided.
+
+        Args:
+            feature_sets: List of feature sets that will be registered
         """
         if not isinstance(feature_sets, list):
             feature_sets = [feature_sets]
@@ -213,6 +254,12 @@ class Client:
             )
 
     def _apply_feature_set(self, feature_set: FeatureSet):
+        """
+        Registers a single feature set with Feast
+
+        Args:
+            feature_set: Feature set that will be registered
+        """
         self._connect_core()
         feature_set._client = self
 
@@ -220,28 +267,38 @@ class Client:
         if not valid:
             raise Exception(message)
         try:
+            # Convert the feature set to a request and send to Feast Core
             apply_fs_response = self._core_service_stub.ApplyFeatureSet(
                 ApplyFeatureSetRequest(feature_set=feature_set.to_proto()),
                 timeout=GRPC_CONNECTION_TIMEOUT_APPLY,
             )  # type: ApplyFeatureSetResponse
+
+            # Extract the returned feature set
             applied_fs = FeatureSet.from_proto(apply_fs_response.feature_set)
 
+            # If the feature set has changed, update the local copy
             if apply_fs_response.status == ApplyFeatureSetResponse.Status.CREATED:
                 print(
                     f'Feature set updated/created: "{applied_fs.name}:{applied_fs.version}".'
                 )
+                # Deep copy from the returned feature set to the local feature set
                 feature_set._update_from_feature_set(applied_fs, is_dirty=False)
                 return
+
+            # If no change has been applied, do nothing
             if apply_fs_response.status == ApplyFeatureSetResponse.Status.NO_CHANGE:
                 print(f"No change detected in feature set {feature_set.name}")
                 return
+
         except grpc.RpcError as e:
             print(format_grpc_exception("ApplyFeatureSet", e.code(), e.details()))
 
     def list_feature_sets(self) -> List[FeatureSet]:
         """
         Retrieve a list of feature sets from Feast Core
-        :return: Returns a list of feature sets
+
+        Returns:
+            List of feature sets
         """
         self._connect_core()
 
@@ -255,7 +312,7 @@ class Client:
                 format_grpc_exception("ListFeatureSets", e.code(), e.details())
             )
 
-        # Store list of feature sets
+        # Extract feature sets and return
         feature_sets = []
         for feature_set_proto in feature_set_protos.feature_sets:
             feature_set = FeatureSet.from_proto(feature_set_proto)
@@ -267,13 +324,16 @@ class Client:
         self, name: str, version: int = None, fail_if_missing: bool = False
     ) -> Union[FeatureSet, None]:
         """
-        Retrieve a single feature set from Feast Core
-        :param name: (str) Name of feature set
-        :param version: (int) Version of feature set
-        :param fail_if_missing: (bool) Throws an exception if the feature set is not
-         found
-        :return: Returns a single feature set
+        Retrieves a feature set. If no version is specified then the latest
+        version will be returned.
 
+        Args:
+            name: Name of feature set
+            version: Version of feature set
+            fail_if_missing: Raise an error if feature set is not found
+
+        Returns:
+            Returns either the specified feature set, or None if not found
         """
         self._connect_core()
         try:
@@ -299,7 +359,9 @@ class Client:
     def list_entities(self) -> Dict[str, Entity]:
         """
         Returns a dictionary of entities across all feature sets
-        :return: Dictionary of entity name to Entity
+
+        Returns:
+            Dictionary of entities, indexed by name
         """
         entities_dict = OrderedDict()
         for fs in self.list_feature_sets():
@@ -314,32 +376,32 @@ class Client:
         Retrieves historical features from a Feast Serving deployment.
 
         Args:
-            feature_ids: List of feature ids that will be returned for each entity.
-            Each feature id should have the following format "feature_set_name:version:feature_name".
-
-            entity_rows: Pandas dataframe containing entities and a 'datetime' column. Each entity in
-            a feature set must be present as a column in this dataframe. The datetime column must
-            contain timestamps in datetime64 format
+            feature_ids: List of feature ids that will be returned for each
+                entity. Each feature id should have the following format
+                "feature_set_name:version:feature_name".
+            entity_rows: Pandas dataframe containing entities and a 'datetime'
+                column. Each entity in a feature set must be present as a column
+                in this dataframe. The datetime column must
 
         Returns:
-            Feast batch retrieval job: feast.job.Job
+            Returns a job object that can be used to monitor retrieval progress
+            asynchronously, and can be used to materialize the results
 
-        Example usage:
-        ============================================================
-        >>> from feast import Client
-        >>> from datetime import datetime
-        >>>
-        >>> feast_client = Client(core_url="localhost:6565", serving_url="localhost:6566")
-        >>> feature_ids = ["customer:1:bookings_7d"]
-        >>> entity_rows = pd.DataFrame(
-        >>>         {
-        >>>            "datetime": [pd.datetime.now() for _ in range(3)],
-        >>>            "customer": [1001, 1002, 1003],
-        >>>         }
-        >>>     )
-        >>> feature_retrieval_job = feast_client.get_batch_features(feature_ids, entity_rows)
-        >>> df = feature_retrieval_job.to_dataframe()
-        >>> print(df)
+        Examples:
+            >>> from feast import Client
+            >>> from datetime import datetime
+            >>>
+            >>> feast_client = Client(core_url="localhost:6565", serving_url="localhost:6566")
+            >>> feature_ids = ["customer:1:bookings_7d"]
+            >>> entity_rows = pd.DataFrame(
+            >>>         {
+            >>>            "datetime": [pd.datetime.now() for _ in range(3)],
+            >>>            "customer": [1001, 1002, 1003],
+            >>>         }
+            >>>     )
+            >>> feature_retrieval_job = feast_client.get_batch_features(feature_ids, entity_rows)
+            >>> df = feature_retrieval_job.to_dataframe()
+            >>> print(df)
         """
 
         self._connect_serving()
@@ -366,17 +428,20 @@ class Client:
                     entity_rows["event_timestamp"]
                 ).tz_localize(None)
 
-            # Retrieve serving information to determine store type and staging location
+            # Retrieve serving information to determine store type and
+            # staging location
             serving_info = self._serving_service_stub.GetFeastServingInfo(
                 GetFeastServingInfoRequest(), timeout=GRPC_CONNECTION_TIMEOUT_DEFAULT
             )  # type: GetFeastServingInfoResponse
 
             if serving_info.type != FeastServingType.FEAST_SERVING_TYPE_BATCH:
                 raise Exception(
-                    f'You are connected to a store "{self._serving_url}" which does not support batch retrieval'
+                    f'You are connected to a store "{self._serving_url}" which '
+                    f"does not support batch retrieval "
                 )
 
-            # Export and upload entity row dataframe to staging location provided by Feast
+            # Export and upload entity row dataframe to staging location
+            # provided by Feast
             staged_file = export_dataframe_to_staging_location(
                 entity_rows, serving_info.job_staging_location
             )  # type: str
@@ -401,16 +466,21 @@ class Client:
         self, entity_rows, feature_sets_request
     ):
         """
-        Validate whether an entity_row dataframe contains the correct information for batch retrieval
-        :param entity_rows: Pandas dataframe containing entities and datetime column. Each entity in a feature set
-        must be present as a column in this dataframe.
-        :param feature_sets_request: Feature sets that will
+        Validate whether an entity_row dataframe contains the correct
+        information for batch retrieval
+
+        Args:
+            entity_rows: Pandas dataframe containing entities and datetime
+                column. Each entity in a feature set must be present as a
+                column in this dataframe.
+            feature_sets_request: Feature sets that will be requested
         """
 
         # Ensure datetime column exists
         if "datetime" not in entity_rows.columns:
             raise ValueError(
-                f'Entity rows does not contain "datetime" column in columns {entity_rows.columns}'
+                f'Entity rows does not contain "datetime" column in columns '
+                f"{entity_rows.columns}"
             )
 
         # Validate dataframe columns based on feature set entities
@@ -420,12 +490,14 @@ class Client:
             )
             if fs is None:
                 raise ValueError(
-                    f'Feature set "{feature_set.name}:{feature_set.version}" could not be found'
+                    f'Feature set "{feature_set.name}:{feature_set.version}" '
+                    f"could not be found"
                 )
             for entity_type in fs.entities:
                 if entity_type.name not in entity_rows.columns:
                     raise ValueError(
-                        f'Dataframe does not contain entity "{entity_type.name}" column in columns "{entity_rows.columns}"'
+                        f'Dataframe does not contain entity "{entity_type.name}"'
+                        f' column in columns "{entity_rows.columns}"'
                     )
 
     def get_online_features(
@@ -435,17 +507,20 @@ class Client:
     ) -> GetOnlineFeaturesResponse:
         """
         Retrieves the latest online feature data from Feast Serving
-        :param feature_ids: List of feature Ids in the following format
-                            [feature_set_name]:[version]:[feature_name]
-                            example: ["feature_set_1:6:my_feature_1",
-                                     "feature_set_1:6:my_feature_2",]
 
-        :param entity_rows: List of GetFeaturesRequest.EntityRow where each row
-                            contains entities. Timestamp should not be set for
-                            online retrieval. All entity types within a feature
-                            set must be provided for each entity key.
-        :return: Returns a list of maps where each item in the list contains
-                 the latest feature values for the provided entities
+        Args:
+            feature_ids: List of feature Ids in the following format
+                [feature_set_name]:[version]:[feature_name]
+                example:
+                    ["feature_set_1:6:my_feature_1",
+                    "feature_set_1:6:my_feature_2",]
+            entity_rows: List of GetFeaturesRequest.EntityRow where each row
+                contains entities. Timestamp should not be set for online
+                retrieval. All entity types within a feature
+
+        Returns:
+            Returns a list of maps where each item in the list contains the
+            latest feature values for the provided entities
         """
         self._connect_serving()
 
@@ -472,7 +547,7 @@ class Client:
             disable_progress_bar: bool = False,
     ) -> None:
         """
-        Loads data into Feast for a specific feature set.
+        Loads feature data into Feast for a specific feature set.
 
         Args:
             feature_set (typing.Union[str, FeatureSet]):
@@ -532,9 +607,9 @@ class Client:
                 discard_unused_fields=True,
                 replace_existing_features=True
             )
-            self.apply(feature_set)
+            # self.apply(feature_set)
 
-        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+        # feature_set = self.get_feature_set(name, version, fail_if_missing=True)
 
         # Split file into smaller chunks and get their directories
         files = _split_parquet_table(
@@ -698,7 +773,12 @@ def _split_parquet_table(
 
 def _build_feature_set_request(feature_ids: List[str]) -> List[FeatureSetRequest]:
     """
-    Builds a list of FeatureSet objects from feature set ids in order to retrieve feature data from Feast Serving
+    Builds a list of FeatureSet objects from feature set ids in order to
+    retrieve feature data from Feast Serving
+
+    Args:
+        feature_ids: List of feature ids
+            ("feature_set_name:version:feature_name")
     """
     feature_set_request = dict()  # type: Dict[str, FeatureSetRequest]
     for feature_id in feature_ids:
@@ -707,7 +787,7 @@ def _build_feature_set_request(feature_ids: List[str]) -> List[FeatureSetRequest
             feature_set, version, feature = fid_parts
         else:
             raise ValueError(
-                f"Could not parse feature id ${feature_id}, needs 3 colons"
+                f"Could not parse feature id ${feature_id}, needs 2 colons"
             )
 
         if feature_set not in feature_set_request:
@@ -723,8 +803,11 @@ def _read_table_from_source(source: Union[pd.DataFrame, str]) -> pa.lib.Table:
     Infers a data source type (path or Pandas Dataframe) and reads it in as
     a PyArrow Table.
 
-    :param source: Either a string path or Pandas dataframe
-    :return: PyArrow table
+    Args:
+        source: Either a string path or Pandas Dataframe
+
+    Returns:
+        PyArrow table
     """
 
     # Pandas dataframe detected
@@ -751,5 +834,4 @@ def _read_table_from_source(source: Union[pd.DataFrame, str]) -> pa.lib.Table:
 
     # Ensure that PyArrow table is initialised
     assert isinstance(table, pa.lib.Table)
-
     return table

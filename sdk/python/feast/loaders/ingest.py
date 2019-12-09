@@ -115,6 +115,7 @@ def get_feature_row_chunks(
         Iterable[List[FeatureRow]]:
             Iterable list of FeatureRow(s).
     """
+
     pool = Pool(max_workers)
     func = partial(_encode_pa_tables, fs=fs)
     for chunk in pool.imap_unordered(func, files):
@@ -122,19 +123,19 @@ def get_feature_row_chunks(
     return
 
 
-def validate_dataframe(dataframe: pd.DataFrame, fs: FeatureSet):
+def validate_dataframe(dataframe: pd.DataFrame, feature_set: FeatureSet):
     if "datetime" not in dataframe.columns:
         raise ValueError(
             f'Dataframe does not contain entity "datetime" in columns {dataframe.columns}'
         )
 
-    for entity in fs.entities:
+    for entity in feature_set.entities:
         if entity.name not in dataframe.columns:
             raise ValueError(
                 f"Dataframe does not contain entity {entity.name} in columns {dataframe.columns}"
             )
 
-    for feature in fs.features:
+    for feature in feature_set.features:
         if feature.name not in dataframe.columns:
             raise ValueError(
                 f"Dataframe does not contain feature {feature.name} in columns {dataframe.columns}"
