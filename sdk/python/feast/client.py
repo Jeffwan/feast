@@ -40,7 +40,7 @@ from feast.feature_set import FeatureSet, Entity
 from feast.job import Job
 from feast.loaders.file import export_dataframe_to_staging_location
 from feast.loaders.ingest import KAFKA_CHUNK_PRODUCTION_TIMEOUT
-from feast.loaders.ingest import get_feature_row_chunks, ingest_table_to_kafka
+from feast.loaders.ingest import get_feature_row_chunks
 from feast.serving.ServingService_pb2 import GetFeastServingInfoResponse
 from feast.serving.ServingService_pb2 import (
     GetOnlineFeaturesRequest,
@@ -64,6 +64,7 @@ FEAST_SERVING_URL_ENV_KEY = "FEAST_SERVING_URL"  # type: str
 FEAST_CORE_URL_ENV_KEY = "FEAST_CORE_URL"  # type: str
 BATCH_FEATURE_REQUEST_WAIT_TIME_SECONDS = 300
 CPU_COUNT = os.cpu_count()  # type: int
+TEMP_DIR = f"_feast_{int(time.time())}/"
 
 
 class Client:
@@ -514,11 +515,15 @@ class Client:
         else:
             raise Exception(f"Feature set name must be provided")
 
+        time_start = time.time()
+
         # Read table and get row count
         table = _read_table_from_source(source)
-        row_count = table.num_rows
 
-        time_start = time.time()
+        # Delete source from memory after conversion into PyArrow table
+        del source
+
+        row_count = table.num_rows
 
         # Update the feature set based on PyArrow table schema
         if force_update:
@@ -531,27 +536,16 @@ class Client:
 
         feature_set = self.get_feature_set(name, version, fail_if_missing=True)
 
-        # Split table into smaller parquet files
-        batches = table.to_batches(
-            max_chunksize=min(int(table.num_rows / max_workers), chunk_size))
-        tables = [pa.lib.Table.from_batches([batch]) for batch in batches]
-
-        print(f"Splitting parquet file into {len(tables)} chunks.")
-
-        temp_dir = f"_feast_{int(time.time())}/"
-
-        # Create a temporary work dir
-        try:
-            os.mkdir(temp_dir)
-        except FileExistsError as e:
-            print("Temporary directory exists")
-
-        for tbl in tables:
-            pa.parquet.write_table(tbl, temp_dir + str(uuid.uuid4()))
+        # Split file into smaller chunks and get their directories
+        files = _split_parquet_table(
+            table=table,
+            max_workers=max_workers,
+            chunk_size=chunk_size
+        )
 
         time_end = time.time()
         exec_time = round(time_end - time_start, 2)
-        print(f"Took {exec_time}s to validate and split parquet file.")
+        print(f"Took {exec_time}s to read, validate and split parquet file.")
 
         # Remove PyArrow from memory
         del table
@@ -562,24 +556,20 @@ class Client:
                     smoothing=0,
                     disable=disable_progress_bar)
 
-        # Get a list of all parquet files created
-        files = [temp_dir + x
-                 for x in os.listdir(temp_dir)
-                 if not x.startswith(".")]  # DO not read in .ds_store
-
         # Kafka configs
         brokers = feature_set.get_kafka_source_brokers()
         topic = feature_set.get_kafka_source_topic()
         producer = Producer({"bootstrap.servers": brokers})
 
-        # Code optimizations
+        # Loop optimization declaration
         send = producer.produce
         flush = producer.flush
         update = pbar.update
 
-        # Define tracker context
+        # Define tracker statistic context
         ctx = {"success_count": 0, "error_count": 0, "last_exception": ""}
 
+        # Transform and push data to Kafka
         if feature_set.source.source_type == "Kafka":
             for chunk in get_feature_row_chunks(
                     files=files, fs=feature_set, max_workers=max_workers):
@@ -588,6 +578,8 @@ class Client:
                 for row in chunk:
                     try:
                         send(topic, row.SerializeToString())
+
+                        # Errors will prevent this progress bar from updating
                         update(1)
                     except Exception as e:
                         # Save last exception
@@ -599,7 +591,7 @@ class Client:
                         else:
                             ctx["error_count"] = 1
 
-                # Force a flush
+                # Force a flush after each chunk
                 flush(timeout=KAFKA_CHUNK_PRODUCTION_TIMEOUT)
 
                 # Remove chunk from memory
@@ -621,6 +613,7 @@ class Client:
         pbar.close()
         print("Ingestion complete!")
 
+        # Print ingestion statistics
         failed_message = (
             ""
             if ctx["error_count"] == 0
@@ -639,83 +632,68 @@ class Client:
             f"{last_exception_message}"
         )
 
-        # Cleanup, remove smaller parquet file(s) that were created
+        # Remove smaller parquet file(s) that were created earlier
         print("Removing temporary files...")
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(TEMP_DIR)
 
         return None
 
-    def ingest_old(
-        self,
-        feature_set: Union[str, FeatureSet],
-        source: Union[pd.DataFrame, str],
-        version: int = None,
-        force_update: bool = False,
-        max_workers: int = CPU_COUNT,
-        disable_progress_bar: bool = False,
-        chunk_size: int = 5000,
-        timeout: int = None,
-    ):
-        """
-        Loads data into Feast for a specific feature set.
 
-        :param feature_set: (str, FeatureSet) Feature set object or the
-        string name of the feature set (without a version)
-        :param source:
-        Either a file path or Pandas Dataframe to ingest into Feast
-        Files that are currently supported:
-            * parquet
-            * csv
-            * json
+def _split_parquet_table(
+        table: pa.lib.Table,
+        max_workers: int,
+        chunk_size: int
+) -> List[str]:
+    """
+    Splits a PyArrow table into smaller chunks and writes it to a temporary
+    directory.
 
-        :param version: Feature set version
-        :param force_update: (bool) Automatically update feature set based on
-        source data prior to ingesting. This will also register changes to Feast
-        :param max_workers: Number of worker processes to use to encode values
-        :param disable_progress_bar: Disable printing of progress statistics
-        :param timeout: Time in seconds before ingestion times out
-        :param chunk_size: Amount of rows to load and ingest at a time
+    The maximum chunk size of smaller chunks is determined by:
+        * (table.num_rows / max_workers)
+        * chunk_size
 
-        """
+    The minimum of the two will be used. This will allow smaller tables to have
+    all its rows spread equally amongst all multiprocessing pool workers.
 
-        if isinstance(feature_set, FeatureSet):
-            name = feature_set.name
-            if version is None:
-                version = feature_set.version
-        elif isinstance(feature_set, str):
-            name = feature_set
-        else:
-            raise Exception(f"Feature set name must be provided")
+    The files that are created will be passed as file path strings to the
+    multiprocessing pool workers.
 
-        table = _read_table_from_source(source)
+    Args:
+        table (pyarrow.lib.Table):
+            PyArrow table to be split into smaller chunks.
 
-        # Update the feature set based on DataFrame schema
-        if force_update:
-            # Use a small as reference DataFrame to infer fields
-            ref_df = table.to_batches(max_chunksize=20)[0].to_pandas()
+        max_workers (int):
+            Number of worker processes to use to encode values.
 
-            feature_set.infer_fields_from_df(
-                ref_df, discard_unused_fields=True, replace_existing_features=True
-            )
-            self.apply(feature_set)
+        chunk_size (int):
+            Amount of rows to load and ingest at a time.
 
-        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+    Returns:
+        List[str]:
+            A list of file directory of smaller PyArrow table chunks that were
+            created.
+    """
+    # Split table into smaller parquet files
+    batches = table.to_batches(
+        max_chunksize=min(int(table.num_rows / max_workers), chunk_size))
+    tables = [pa.lib.Table.from_batches([batch]) for batch in batches]
 
-        if feature_set.source.source_type == "Kafka":
-            ingest_table_to_kafka(
-                feature_set=feature_set,
-                table=table,
-                max_workers=max_workers,
-                disable_pbar=disable_progress_bar,
-                chunk_size=chunk_size,
-                timeout=timeout,
-            )
-        else:
-            raise Exception(
-                f"Could not determine source type for feature set "
-                f'"{feature_set.name}" with source type '
-                f'"{feature_set.source.source_type}"'
-            )
+    print(f"Splitting parquet file into {len(tables)} chunks.")
+
+    # Create a temporary work dir
+    try:
+        os.mkdir(TEMP_DIR)
+    except FileExistsError as e:
+        print("Temporary directory already exists.")
+        print("Overwriting temporary directory.")
+        shutil.rmtree(TEMP_DIR)
+        os.mkdir(TEMP_DIR)
+
+    for tbl in tables:
+        pa.parquet.write_table(tbl, TEMP_DIR + str(uuid.uuid4()))
+
+    # Return all parquet files created (Do not return in .ds_store)
+    return [TEMP_DIR + x for x in os.listdir(TEMP_DIR) if not x.startswith(".")]
 
 
 def _build_feature_set_request(feature_ids: List[str]) -> List[FeatureSetRequest]:
