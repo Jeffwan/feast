@@ -532,9 +532,9 @@ class Client:
                 discard_unused_fields=True,
                 replace_existing_features=True
             )
-            self.apply(feature_set)
+            # self.apply(feature_set)
 
-        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+        # feature_set = self.get_feature_set(name, version, fail_if_missing=True)
 
         # Split file into smaller chunks and get their directories
         files = _split_parquet_table(
@@ -575,9 +575,9 @@ class Client:
                     files=files, fs=feature_set, max_workers=max_workers):
 
                 # Push FeatureRow in chunk to kafka
-                for row in chunk:
+                for serialized_row in chunk:
                     try:
-                        send(topic, row.SerializeToString())
+                        send(topic, serialized_row)
 
                         # Errors will prevent this progress bar from updating
                         update(1)

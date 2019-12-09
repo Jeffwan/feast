@@ -85,7 +85,7 @@ def _encode_pa_tables(
         for k, v in proto_items:
             ext([field(name=k, value=v[row_idx])])
 
-        append(feature_row)
+        append(feature_row.SerializeToString())
 
     return feature_rows
 
