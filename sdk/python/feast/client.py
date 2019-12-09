@@ -540,7 +540,7 @@ class Client:
             self,
             feature_set: Union[str, FeatureSet],
             source: Union[pd.DataFrame, str],
-            chunk_size: int,
+            chunk_size: int = 10000,
             version: int = None,
             force_update: bool = False,
             max_workers: int = CPU_COUNT - 1,

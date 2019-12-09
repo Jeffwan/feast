@@ -443,6 +443,6 @@ class TestClient:
         )
 
         # Need to create a mock producer
-        with patch("feast.loaders.ingest.KafkaProducer") as mocked_queue:
+        with patch("feast.client.Producer") as mocked_queue:
             # Ingest data into Feast
             client.ingest(all_types_fs, dataframe)
