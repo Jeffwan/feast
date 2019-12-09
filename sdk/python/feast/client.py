@@ -607,9 +607,9 @@ class Client:
                 discard_unused_fields=True,
                 replace_existing_features=True
             )
-            # self.apply(feature_set)
+            self.apply(feature_set)
 
-        # feature_set = self.get_feature_set(name, version, fail_if_missing=True)
+        feature_set = self.get_feature_set(name, version, fail_if_missing=True)
 
         # Split file into smaller chunks and get their directories
         files = _split_parquet_table(

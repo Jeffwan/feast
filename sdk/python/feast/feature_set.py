@@ -387,30 +387,39 @@ class FeatureSet:
         detected as features, so setting at least one entity manually is
         advised.
 
-        :param table: PyArrow table to read schema from.
-        :type table: pyarrow.lib.Table
-        :param entities: List of entities that will be set manually and not
-            inferred. These will take precedence over any existing entities or
-            entities found in the PyArrow table.
-        :type entities: Optional[List[Entity]]
-        :param features: List of features that will be set manually and not
-            inferred. These will take precedence over any existing feature or
-            features found in the PyArrow table.
-        :type features: Optional[List[Feature]]
-        :param replace_existing_features: Boolean flag. If true, will replace
-            existing features in this feature set with features found in
-            dataframe. If false, will skip conflicting features.
-        :type replace_existing_features: bool
-        :param replace_existing_entities: Boolean flag. If true, will replace
-        existing entities in this feature set with features found in dataframe.
-        If false, will skip conflicting entities.
-        :type replace_existing_entities: bool
-        :param discard_unused_fields: Boolean flag. Setting this to True will
-            discard any existing fields that are not found in the dataset or
-            provided by the user.
-        :type discard_unused_fields: bool
-        :return: None
-        :rtype: None
+
+        Args:
+            table (pyarrow.lib.Table):
+                PyArrow table to read schema from.
+
+            entities (Optional[List[Entity]]):
+                List of entities that will be set manually and not inferred.
+                These will take precedence over any existing entities or
+                entities found in the PyArrow table.
+
+            features (Optional[List[Feature]]):
+                List of features that will be set manually and not inferred.
+                These will take precedence over any existing feature or features
+                found in the PyArrow table.
+
+            replace_existing_features (bool):
+                Boolean flag. If true, will replace existing features in this
+                feature set with features found in dataframe. If false, will
+                skip conflicting features.
+
+            replace_existing_entities (bool):
+                Boolean flag. If true, will replace existing entities in this
+                feature set with features found in dataframe. If false, will
+                skip conflicting entities.
+
+            discard_unused_fields (bool):
+                Boolean flag. Setting this to True will discard any existing
+                fields that are not found in the dataset or provided by the
+                user.
+
+        Returns:
+            None:
+                None
         """
         if entities is None:
             entities = list()
@@ -481,7 +490,7 @@ class FeatureSet:
                     continue
 
             # Store this fields as a feature
-            # TODO: (Minor) Change the parameter from dtype to patype
+            # TODO: (Minor) Change the parameter name from dtype to patype
             new_fields[column] = Feature(
                 name=column,
                 dtype=self._infer_pa_column_type(table.column(column))
