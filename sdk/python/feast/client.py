@@ -16,7 +16,6 @@
 import logging
 import os
 import shutil
-import sys
 import time
 import uuid
 from collections import OrderedDict
@@ -37,7 +36,6 @@ from feast.core.CoreService_pb2 import (
     GetFeatureSetResponse,
 )
 from feast.core.CoreService_pb2_grpc import CoreServiceStub
-from feast.exceptions import format_grpc_exception
 from feast.feature_set import FeatureSet, Entity
 from feast.job import Job
 from feast.loaders.file import export_dataframe_to_staging_location
@@ -265,7 +263,7 @@ class Client:
             print(f"No change detected or applied: {feature_set.name}")
 
         # Deep copy from the returned feature set to the local feature set
-        feature_set.update_from_feature_set(applied_fs)
+        feature_set._update_from_feature_set(applied_fs)
 
     def list_feature_sets(self) -> List[FeatureSet]:
         """
