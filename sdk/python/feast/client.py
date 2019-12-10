@@ -560,7 +560,7 @@ class Client:
         exec_time = round(time_end - time_start, 2)
         print(f"Took {exec_time}s to read, validate and split parquet file.")
 
-        # Remove PyArrow from memory
+        # Remove PyArrow table from memory
         del table
 
         # Kafka configs
@@ -574,7 +574,7 @@ class Client:
                     smoothing=0,
                     disable=disable_progress_bar)
 
-        # Loop optimization declaration
+        # Loop optimization declarations
         produce = producer.produce
         flush = producer.flush
         update = pbar.update
@@ -587,7 +587,7 @@ class Client:
             for chunk in get_feature_row_chunks(
                     files=files, fs=feature_set, max_workers=max_workers):
 
-                # Push FeatureRow in chunk to kafka
+                # Push FeatureRow one chunk at a time to kafka
                 for serialized_row in chunk:
                     try:
                         produce(topic=topic, value=serialized_row)
@@ -705,7 +705,7 @@ def _split_parquet_table(
     for tbl in tables:
         pa.parquet.write_table(tbl, TEMP_DIR + str(uuid.uuid4()))
 
-    # Return all parquet files created (Do not return in .ds_store)
+    # Return all parquet files created (Do not return .ds_store)
     return [TEMP_DIR + x for x in os.listdir(TEMP_DIR) if not x.startswith(".")]
 
 

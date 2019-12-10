@@ -69,7 +69,7 @@ def _encode_pa_tables(
     # List to store result
     feature_rows = []
 
-    # Loop optimization declaration
+    # Loop optimization declaration(s)
     field = FieldProto.Field
     proto_items = proto_columns.items()
     append = feature_rows.append
