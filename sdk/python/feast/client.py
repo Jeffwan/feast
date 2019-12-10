@@ -506,7 +506,8 @@ class Client:
                 Feature set version.
 
             force_update (bool):
-                Automatically update feature set based on.
+                Automatically update feature set based on source data prior to
+                ingesting. This will also register changes to Feast.
 
             max_workers (int):
                 Number of worker processes to use to encode values.
