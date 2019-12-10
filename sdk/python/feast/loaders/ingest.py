@@ -27,7 +27,7 @@ KAFKA_CHUNK_PRODUCTION_TIMEOUT = 120  # type: int
 def _encode_pa_tables(
         file_dir: List[str],
         fs: FeatureSet,
-) -> List[FeatureRow]:
+) -> List[bytes]:
     """
     Helper function to encode a PyArrow table(s) read from parquet file(s) into
     FeatureRows.
@@ -47,8 +47,8 @@ def _encode_pa_tables(
             FeatureSet describing parquet files.
 
     Returns:
-        List[FeatureRow]:
-            List of FeatureRows encoded from the parquet file.
+        List[bytes]:
+            List of byte encoded FeatureRows from the parquet file.
     """
     # Read parquet file as a PyArrow table
     table = pq.read_table(file_dir)
@@ -95,7 +95,7 @@ def get_feature_row_chunks(
         files: List[str],
         fs: FeatureSet,
         max_workers: int
-) -> Iterable[List[FeatureRow]]:
+) -> Iterable[List[bytes]]:
     """
     Iterator function to encode a PyArrow table read from a parquet file to
     FeatureRow(s).
@@ -112,8 +112,8 @@ def get_feature_row_chunks(
             Maximum number of workers to spawn.
 
     Returns:
-        Iterable[List[FeatureRow]]:
-            Iterable list of FeatureRow(s).
+        Iterable[List[bytes]]:
+            Iterable list of byte encoded FeatureRow(s).
     """
 
     pool = Pool(max_workers)

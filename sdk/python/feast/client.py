@@ -55,7 +55,7 @@ from feast.serving.ServingService_pb2 import (
     FeastServingType,
 )
 from feast.serving.ServingService_pb2_grpc import ServingServiceStub
-from confluent_kafka import Producer
+from feast.loaders.producer_interface import get_producer
 from tqdm import tqdm
 
 _logger = logging.getLogger(__name__)
@@ -625,19 +625,19 @@ class Client:
         # Remove PyArrow from memory
         del table
 
+        # Kafka configs
+        brokers = feature_set.get_kafka_source_brokers()
+        topic = feature_set.get_kafka_source_topic()
+        producer = get_producer(brokers)
+
         # Progress bar will always display average rate
         pbar = tqdm(total=row_count,
                     unit="rows",
                     smoothing=0,
                     disable=disable_progress_bar)
 
-        # Kafka configs
-        brokers = feature_set.get_kafka_source_brokers()
-        topic = feature_set.get_kafka_source_topic()
-        producer = Producer({"bootstrap.servers": brokers})
-
         # Loop optimization declaration
-        send = producer.produce
+        produce = producer.produce
         flush = producer.flush
         update = pbar.update
 
@@ -652,7 +652,7 @@ class Client:
                 # Push FeatureRow in chunk to kafka
                 for serialized_row in chunk:
                     try:
-                        send(topic, serialized_row)
+                        produce(topic=topic, value=serialized_row)
 
                         # Errors will prevent this progress bar from updating
                         update(1)
