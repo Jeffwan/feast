@@ -53,7 +53,7 @@ class ConfluentProducer(ProducerInterface):
         Returns:
             int: Number of messages still in queue.
         """
-        self.producer.flush(timeout=timeout)
+        return self.producer.flush(timeout=timeout)
 
 
 class KafkaPythonProducer(ProducerInterface):
@@ -81,7 +81,7 @@ class KafkaPythonProducer(ProducerInterface):
             KafkaTimeoutError: if unable to fetch topic metadata, or unable
                 to obtain memory buffer prior to configured max_block_ms
         """
-        self.producer.send(topic, value=value)
+        return self.producer.send(topic, value=value)
 
     def flush(self, timeout: Optional[int]):
         """
@@ -97,7 +97,7 @@ class KafkaPythonProducer(ProducerInterface):
             KafkaTimeoutError: failure to flush buffered records within the
                 provided timeout
         """
-        self.producer.flush(timeout=timeout)
+        return self.producer.flush(timeout=timeout)
 
 
 def get_producer(brokers: str) -> Union[ConfluentProducer, KafkaPythonProducer]:
