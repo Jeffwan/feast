@@ -15,9 +15,7 @@
 
 import logging
 import os
-import shutil
 import time
-import uuid
 from collections import OrderedDict
 from typing import Dict, Union
 from typing import List
@@ -532,17 +530,20 @@ class Client:
         time_start = time.time()
 
         # Read table and get row count
-        table = _read_table_from_source(source)
+        tmp_table_name = _read_table_from_source(source, chunk_size,
+                                                 max_workers)
+
+        pq_file = pq.ParquetFile(tmp_table_name)
 
         # Delete source from memory after conversion into PyArrow table
         del source
 
-        row_count = table.num_rows
+        row_count = pq_file.metadata.num_rows
 
-        # Update the feature set based on PyArrow table schema
+        # Update the feature set based on PyArrow table of the first row group
         if force_update:
             feature_set.infer_fields_from_pa(
-                table=table,
+                table=pq_file.read_row_group(0),
                 discard_unused_fields=True,
                 replace_existing_features=True
             )
@@ -550,19 +551,9 @@ class Client:
 
         feature_set = self.get_feature_set(name, version)
 
-        # Split file into smaller chunks and get their directories
-        files = _split_parquet_table(
-            table=table,
-            max_workers=max_workers,
-            chunk_size=chunk_size
-        )
-
         time_end = time.time()
         exec_time = round(time_end - time_start, 2)
         print(f"Took {exec_time}s to read, validate and split parquet file.")
-
-        # Remove PyArrow table from memory
-        del table
 
         # Kafka configs
         brokers = feature_set.get_kafka_source_brokers()
@@ -586,7 +577,10 @@ class Client:
         # Transform and push data to Kafka
         if feature_set.source.source_type == "Kafka":
             for chunk in get_feature_row_chunks(
-                    files=files, fs=feature_set, max_workers=max_workers):
+                    file=tmp_table_name,
+                    row_groups=list(range(pq_file.num_row_groups)),
+                    fs=feature_set,
+                    max_workers=max_workers):
 
                 # Push FeatureRow one chunk at a time to kafka
                 for serialized_row in chunk:
@@ -646,68 +640,11 @@ class Client:
             f"{last_exception_message}"
         )
 
-        # Remove smaller parquet file(s) that were created earlier
-        print("Removing temporary files...")
-        shutil.rmtree(TEMP_DIR)
+        # Remove parquet file(s) that were created earlier
+        print("Removing temporary file(s)...")
+        os.remove(tmp_table_name)
 
         return None
-
-
-def _split_parquet_table(
-        table: pa.lib.Table,
-        max_workers: int,
-        chunk_size: int
-) -> List[str]:
-    """
-    Splits a PyArrow table into smaller chunks and writes it to a temporary
-    directory.
-
-    The maximum chunk size of smaller chunks is determined by:
-        * (table.num_rows / max_workers)
-        * chunk_size
-
-    The minimum of the two will be used. This will allow smaller tables to have
-    all its rows spread equally amongst all multiprocessing pool workers.
-
-    The files that are created will be passed as file path strings to the
-    multiprocessing pool workers.
-
-    Args:
-        table (pyarrow.lib.Table):
-            PyArrow table to be split into smaller chunks.
-
-        max_workers (int):
-            Number of worker processes to use to encode values.
-
-        chunk_size (int):
-            Amount of rows to load and ingest at a time.
-
-    Returns:
-        List[str]:
-            A list of file directory of smaller PyArrow table chunks that were
-            created.
-    """
-    # Split table into smaller parquet files
-    batches = table.to_batches(
-        max_chunksize=min(int(table.num_rows / max_workers), chunk_size))
-    tables = [pa.lib.Table.from_batches([batch]) for batch in batches]
-
-    print(f"Splitting parquet file into {len(tables)} chunks.")
-
-    # Create a temporary work dir
-    try:
-        os.mkdir(TEMP_DIR)
-    except FileExistsError as e:
-        print("Temporary directory already exists.")
-        print("Overwriting temporary directory.")
-        shutil.rmtree(TEMP_DIR)
-        os.mkdir(TEMP_DIR)
-
-    for tbl in tables:
-        pa.parquet.write_table(tbl, TEMP_DIR + str(uuid.uuid4()))
-
-    # Return all parquet files created (Do not return .ds_store)
-    return [TEMP_DIR + x for x in os.listdir(TEMP_DIR) if not x.startswith(".")]
 
 
 def _build_feature_set_request(feature_ids: List[str]) -> List[FeatureSetRequest]:
@@ -737,19 +674,38 @@ def _build_feature_set_request(feature_ids: List[str]) -> List[FeatureSetRequest
     return list(feature_set_request.values())
 
 
-def _read_table_from_source(source: Union[pd.DataFrame, str]) -> pa.lib.Table:
+def _read_table_from_source(
+        source: Union[pd.DataFrame, str],
+        chunk_size: int,
+        max_workers: int
+) -> str:
     """
     Infers a data source type (path or Pandas Dataframe) and reads it in as
     a PyArrow Table.
 
+    The PyArrow Table that is read will be written to a parquet file with row
+    group size determined by the minimum of:
+        * (table.num_rows / max_workers)
+        * chunk_size
+
+    The parquet file that is created will be passed as file path to the
+    multiprocessing pool workers.
+
     Args:
-        source: Either a string path or Pandas Dataframe
+        source (Union[pd.DataFrame, str]):
+            Either a string path or Pandas DataFrame.
+
+        chunk_size (int):
+            Number of worker processes to use to encode values.
+
+        max_workers (int):
+            Amount of rows to load and ingest at a time.
 
     Returns:
-        PyArrow table
+        str: Path to parquet file that was created.
     """
 
-    # Pandas dataframe detected
+    # Pandas DataFrame detected
     if isinstance(source, pd.DataFrame):
         table = pa.Table.from_pandas(df=source)
 
@@ -773,4 +729,14 @@ def _read_table_from_source(source: Union[pd.DataFrame, str]) -> pa.lib.Table:
 
     # Ensure that PyArrow table is initialised
     assert isinstance(table, pa.lib.Table)
-    return table
+
+    # Write table as parquet file with a specified row_group_size
+    tmp_table_name = f"{int(time.time())}.parquet"
+    row_group_size = min(int(table.num_rows/max_workers), chunk_size)
+    pq.write_table(table=table, where=tmp_table_name,
+                   row_group_size=row_group_size)
+
+    # Remove table from memory
+    del table
+
+    return tmp_table_name

@@ -25,8 +25,9 @@ KAFKA_CHUNK_PRODUCTION_TIMEOUT = 120  # type: int
 
 
 def _encode_pa_tables(
-        file_dir: List[str],
+        file: str,
         fs: FeatureSet,
+        row_group_idx: int,
 ) -> List[bytes]:
     """
     Helper function to encode a PyArrow table(s) read from parquet file(s) into
@@ -39,19 +40,24 @@ def _encode_pa_tables(
     using a pool of max_workers workers.
 
     Args:
-        file_dir (typing.List[str]):
-            File directory of all the parquet files to encode.
-            All parquet files must have the same schema.
+        file (str):
+            File directory of all the parquet file to encode.
+            Parquet file must have more than one row group.
 
         fs (feast.feature_set.FeatureSet):
             FeatureSet describing parquet files.
+
+        row_group_idx(int):
+            Row group index to read and encode into byte like FeatureRow
+            protobuf objects.
 
     Returns:
         List[bytes]:
             List of byte encoded FeatureRows from the parquet file.
     """
+    pq_file = pq.ParquetFile(file)
     # Read parquet file as a PyArrow table
-    table = pq.read_table(file_dir)
+    table = pq_file.read_row_group(row_group_idx)
 
     # Add datetime column
     datetime_col = pa_column_to_timestamp_proto_column(
@@ -92,7 +98,8 @@ def _encode_pa_tables(
 
 
 def get_feature_row_chunks(
-        files: List[str],
+        file: str,
+        row_groups: List[int],
         fs: FeatureSet,
         max_workers: int
 ) -> Iterable[List[bytes]]:
@@ -101,9 +108,13 @@ def get_feature_row_chunks(
     FeatureRow(s).
 
     Args:
-        files (typing.List[str]):
-            File directory of all the parquet files to encode.
-            All parquet files must have the same schema.
+        file (str):
+            File directory of the parquet file. The parquet file must have more
+            than one row group.
+
+        row_groups (List[int]):
+            Specific row group indexes to be read and transformed in the parquet
+            file.
 
         fs (feast.feature_set.FeatureSet):
             FeatureSet describing parquet files.
@@ -117,8 +128,8 @@ def get_feature_row_chunks(
     """
 
     pool = Pool(max_workers)
-    func = partial(_encode_pa_tables, fs=fs)
-    for chunk in pool.imap_unordered(func, files):
+    func = partial(_encode_pa_tables, file, fs)
+    for chunk in pool.imap_unordered(func, row_groups):
         yield chunk
     return
 
