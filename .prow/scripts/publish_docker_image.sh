@@ -40,11 +40,11 @@ if [ $GOOGLE_SERVICE_ACCOUNT_FILE ]; then
 fi
 
 echo "============================================================"
-echo "Building Docker image $REPOSITORY:$TAG..."
+echo "Building Docker image $REPOSITORY:$TAG"
 echo "============================================================"
 docker build -t $REPOSITORY:$TAG --build-arg REVISION=$TAG -f $FILE .
 
 echo "============================================================"
-echo "Pushing Docker image $REPOSITORY:$TAG..."
+echo "Pushing Docker image $REPOSITORY:$TAG"
 echo "============================================================"
 docker push $REPOSITORY:$TAG

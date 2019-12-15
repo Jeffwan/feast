@@ -33,13 +33,13 @@ ORIGINAL_DIR=$PWD
 cd $DIRECTORY_PATH
 
 echo "============================================================"
-echo "Generating distribution archives..."
+echo "Generating distribution archives"
 echo "============================================================"
 python3 -m pip install --user --upgrade setuptools wheel
 python3 setup.py sdist bdist_wheel
 
 echo "============================================================"
-echo "Uploading distribution archives..."
+echo "Uploading distribution archives"
 echo "============================================================"
 python3 -m pip install --user --upgrade twine
 python3 -m twine upload --repository $REPOSITORY dist/*
