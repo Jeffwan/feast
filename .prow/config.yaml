@@ -8,7 +8,7 @@ plank:
   pod_pending_timeout: 60m
   default_decoration_configs:
     "*":
-      timeout: 2h
+      timeout: 1h
       grace_period: 15s
       utility_images:
         clonerefs: gcr.io/k8s-prow/clonerefs:v20190221-d14461a
@@ -157,7 +157,12 @@ postsubmits:
       containers:
       - image: python:3
         command:
+        - sh 
+        - -c 
         - |
+          pwd
+          ls -lah
+          ls -lah .prow/scripts/
           .prow/scripts/publish_python_sdk.sh \
             --directory_path sdk/python \
             --repository testpypi
