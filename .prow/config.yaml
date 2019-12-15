@@ -164,7 +164,7 @@ postsubmits:
             --directory_path sdk/python --repository testpypi
         env:
         - name: SETUPTOOLS_SCM_PRETEND_VERSION
-          value: 1.0.2
+          value: 1.0.3
         volumeMounts:
         - name: pypirc 
           mountPath: /root/.pypirc

@@ -14,7 +14,7 @@
 
 from setuptools import find_packages, setup
 
-NAME = "feast"
+NAME = "moomin123"
 DESCRIPTION = "Python SDK for Feast"
 URL = "https://github.com/gojek/feast"
 AUTHOR = "Feast"
@@ -71,6 +71,6 @@ setup(
         "Programming Language :: Python :: 3.6",
     ],
     entry_points={"console_scripts": ["feast=cli:cli"]},
-    use_scm_version={"root": "..", "relative_to": __file__},
+    use_scm_version={"root": "../..", "relative_to": __file__},
     setup_requires=["setuptools_scm"],
 )
