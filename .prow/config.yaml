@@ -151,7 +151,7 @@ presubmits:
 
 postsubmits:
   gojek/feast:
-  - name: release-automation-dry-run
+  - name: publish-python-sdk
     decorate: true        
     spec:
       containers:
@@ -160,9 +160,6 @@ postsubmits:
         - |
           .prow/scripts/publish_python_sdk.sh \
             --directory_path sdk/python --repository testpypi
-        env:
-        - name: SETUPTOOLS_SCM_PRETEND_VERSION
-          value: 1.0.5
         volumeMounts:
         - name: pypirc 
           mountPath: /root/.pypirc
@@ -174,3 +171,43 @@ postsubmits:
           secretName: pypirc
     branches:
     - release-automation-dry-run
+
+  - name: publish-docker-images
+    decorate: true 
+    spec:
+      containers:
+      - image: google/cloud-sdk:273.0.0
+        command:
+        - sh
+        - -c
+        - |
+          .prow/scripts/publish_docker_image.sh \
+            --repository gcr.io/kf-feast/test-core \
+            --tag ${PULL_BASE_REF:1} \
+            --file infra/docker/core/Dockerfile \
+            --google_service_account_file /etc/gcloud/service-account.json
+
+          .prow/scripts/publish_docker_image.sh \
+            --repository gcr.io/kf-feast/test-serving \
+            --tag ${PULL_BASE_REF:1} \
+            --file infra/docker/serving/Dockerfile \
+            --google_service_account_file /etc/gcloud/service-account.json
+        volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/docker.sock
+        - name: service-account
+          mountPath: /etc/gcloud/service-account.json
+          subPath: service-account.json
+          readOnly: true
+        securityContext:
+          privileged: true
+      volumes:
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+      - name: service-account
+        secret:
+          secretName: feast-service-account
+    branches:
+    - release-automation-dry-run
+    - release-automation-dry-run-2

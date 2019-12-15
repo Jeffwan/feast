@@ -12,7 +12,8 @@ usage()
 
     --repository      the repository name where the package will be uploaded,
                       check your .pypirc configuration file for the list of 
-                      valid repositories, usually it's 'pypi' or 'testpypi'"
+                      valid repositories, usually it's 'pypi' or 'testpypi'
+"
 }
 
 while [ "$1" != "" ]; do
@@ -26,7 +27,7 @@ while [ "$1" != "" ]; do
 done
 
 if [ -z $DIRECTORY_PATH ]; then usage; exit 1; fi
-if [ -z $REPOSITORY ];     then usage; exit 1; fi
+if [ -z $REPOSITORY ]; then usage; exit 1; fi
 
 ORIGINAL_DIR=$PWD
 cd $DIRECTORY_PATH
