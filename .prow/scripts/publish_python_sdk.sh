@@ -25,8 +25,8 @@ while [ "$1" != "" ]; do
   shift
 done
 
-if [ -z $DIRECTORY_PATH ]; then usage; fi; exit 1
-if [ -z $REPOSITORY ]; then usage; fi; exit 1
+if [ -z $DIRECTORY_PATH ]; then usage; exit 1; fi
+if [ -z $REPOSITORY ];     then usage; exit 1; fi
 
 ORIGINAL_DIR=$PWD
 cd $DIRECTORY_PATH
