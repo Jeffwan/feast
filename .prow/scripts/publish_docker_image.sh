@@ -34,6 +34,7 @@ done
 if [ -z $REPOSITORY ]; then usage; exit 1; fi
 if [ -z $TAG ]; then usage; exit 1; fi
 if [ -z $FILE ]; then usage; exit 1; fi
+  
 if [ $GOOGLE_SERVICE_ACCOUNT_FILE ]; then 
     gcloud -q auth activate-service-account --key-file $GOOGLE_SERVICE_ACCOUNT_FILE
     gcloud -q auth configure-docker
