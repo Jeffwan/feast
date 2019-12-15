@@ -157,14 +157,12 @@ postsubmits:
       containers:
       - image: python:3
         command:
-        - sh 
-        - -c 
         - |
           .prow/scripts/publish_python_sdk.sh \
             --directory_path sdk/python --repository testpypi
         env:
         - name: SETUPTOOLS_SCM_PRETEND_VERSION
-          value: 1.0.3
+          value: 1.0.5
         volumeMounts:
         - name: pypirc 
           mountPath: /root/.pypirc

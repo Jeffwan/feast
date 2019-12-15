@@ -14,7 +14,7 @@
 
 from setuptools import find_packages, setup
 
-NAME = "moomin123"
+NAME = "feast"
 DESCRIPTION = "Python SDK for Feast"
 URL = "https://github.com/gojek/feast"
 AUTHOR = "Feast"
