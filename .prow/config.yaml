@@ -2,12 +2,14 @@ prowjob_namespace: default
 pod_namespace: test-pods
 
 plank:
-  job_url_prefix: http://prow.feast.ai/view/gcs
+  job_url_prefix_config:
+    "*": http://prow.feast.ai/view/gcs
   report_template: '[Full PR test history](https://prow.feast.ai/pr-history?org={{.Spec.Refs.Org}}&repo={{.Spec.Refs.Repo}}&pr={{with index .Spec.Refs.Pulls 0}}{{.Number}}{{end}})'
+  pod_pending_timeout: 60m
   default_decoration_configs:
     "*":
-      timeout: 7200000000000    # 2h
-      grace_period: 15000000000 # 15s
+      timeout: 2h
+      grace_period: 15s
       utility_images:
         clonerefs: gcr.io/k8s-prow/clonerefs:v20190221-d14461a
         initupload: gcr.io/k8s-prow/initupload:v20190221-d14461a
@@ -21,13 +23,27 @@ plank:
 deck:
   tide_update_period: 1s
   spyglass:
-    size_limit: 50e+6 # 50MB
-    viewers:
-      "started.json|finished.json": ["metadata"]
-      "build-log.txt": ["buildlog"]
-      "report.xml": ["junit"]
-      "artifacts/.*\\.xml": ["junit"]
-      "surefire-reports/.*\\.xml": ["junit"]
+    size_limit: 10e+6 # 10MB
+    lenses:
+    - lens:
+        name: metadata
+      required_files:
+      - started.json|finished.json
+    - lens:
+        name: buildlog
+      required_files:
+      - build-log.txt
+    - lens:
+        name: junit
+      required_files:
+      - artifacts/.*\.xml
+    - 
+    # viewers:
+    #   "started.json|finished.json": ["metadata"]
+    #   "build-log.txt": ["buildlog"]
+    #   "report.xml": ["junit"]
+    #   "artifacts/.*\\.xml": ["junit"]
+    #   "surefire-reports/.*\\.xml": ["junit"]
 
 tide:
   queries:
@@ -47,7 +63,9 @@ tide:
   blocker_label: merge-blocker
   squash_label: tide/squash
 
-# presubmits list Prow jobs that run on pull requests
+# presubmits and postsubmits configure ProwJobs.
+# https://github.com/kubernetes/test-infra/blob/6571843b1aa7bd6cf577a7a8b9e9971241f424d5/prow/jobs.md
+
 presubmits:
   gojek/feast:
   - name: test-core-and-ingestion
@@ -142,8 +160,20 @@ postsubmits:
         - sh
         - -c 
         - |
-          git status
-          git log -3
-          cat README.md
+          .prow/scripts/publish_python_sdk.sh \
+            --directory_path sdk/python \
+            --repository testpypi
+        env:
+        - name: SETUPTOOLS_SCM_PRETEND_VERSION
+          value: 1.0.0
+        volumeMounts:
+        - name: pypirc 
+          mountPath: /root/.pypirc
+          subPath: .pypirc
+          readOnly: true
+      volumes:
+      - name: pypirc
+        secret:
+          secretName: pypirc
     branches:
     - release-automation-dry-run
