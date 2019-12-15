@@ -209,11 +209,6 @@ postsubmits:
             --file infra/docker/core/Dockerfile \
             --google_service_account_file /etc/gcloud/service-account.json
 
-          .prow/scripts/publish_docker_image.sh \
-            --repository gcr.io/kf-feast/test-core \
-            --tag latest \
-            --file infra/docker/core/Dockerfile \
-            --google_service_account_file /etc/gcloud/service-account.json
           
           .prow/scripts/publish_docker_image.sh \
             --repository gcr.io/kf-feast/test-serving \
@@ -221,11 +216,11 @@ postsubmits:
             --file infra/docker/serving/Dockerfile \
             --google_service_account_file /etc/gcloud/service-account.json
 
-          .prow/scripts/publish_docker_image.sh \
-            --repository gcr.io/kf-feast/test-serving \
-            --tag latest \
-            --file infra/docker/serving/Dockerfile \
-            --google_service_account_file /etc/gcloud/service-account.json
+          docker tag gcr.io/kf-feast/test-core:${PULL_BASE_REF:1} gcr.io/kf-feast/test-core:latest
+          docker push gcr.io/kf-feast/test-core:latest
+
+          docker tag gcr.io/kf-feast/test-serving:${PULL_BASE_REF:1} gcr.io/kf-feast/test-serving:latest
+          docker push gcr.io/kf-feast/test-serving:latest
 
           fi
         volumeMounts:
