@@ -178,9 +178,29 @@ postsubmits:
       containers:
       - image: google/cloud-sdk:273.0.0
         command:
-        - sh
+        - bash
         - -c
         - |
+          .prow/scripts/download-maven-cache.sh \
+            --archive-uri gs://feast-templocation-kf-feast/.m2.2019-10-24.tar \
+            --output-dir $PWD/
+
+          if [ $PULL_BASE_REF == "master" ]; then 
+          
+          .prow/scripts/publish_docker_image.sh \
+            --repository gcr.io/kf-feast/test-core \
+            --tag dev \
+            --file infra/docker/core/Dockerfile \
+            --google_service_account_file /etc/gcloud/service-account.json
+          
+          .prow/scripts/publish_docker_image.sh \
+            --repository gcr.io/kf-feast/test-serving \
+            --tag dev \
+            --file infra/docker/serving/Dockerfile \
+            --google_service_account_file /etc/gcloud/service-account.json
+
+          else
+          
           .prow/scripts/publish_docker_image.sh \
             --repository gcr.io/kf-feast/test-core \
             --tag ${PULL_BASE_REF:1} \
@@ -188,10 +208,25 @@ postsubmits:
             --google_service_account_file /etc/gcloud/service-account.json
 
           .prow/scripts/publish_docker_image.sh \
+            --repository gcr.io/kf-feast/test-core \
+            --tag latest \
+            --file infra/docker/core/Dockerfile \
+            --google_service_account_file /etc/gcloud/service-account.json
+          
+          .prow/scripts/publish_docker_image.sh \
             --repository gcr.io/kf-feast/test-serving \
             --tag ${PULL_BASE_REF:1} \
             --file infra/docker/serving/Dockerfile \
             --google_service_account_file /etc/gcloud/service-account.json
+
+          .prow/scripts/publish_docker_image.sh \
+            --repository gcr.io/kf-feast/test-serving \
+            --tag latest \
+            --file infra/docker/serving/Dockerfile \
+            --google_service_account_file /etc/gcloud/service-account.json
+
+          fi
+          
         volumeMounts:
         - name: docker-socket
           mountPath: /var/run/docker.sock
@@ -210,4 +245,3 @@ postsubmits:
           secretName: feast-service-account
     branches:
     - release-automation-dry-run
-    - release-automation-dry-run-2

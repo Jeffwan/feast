@@ -42,7 +42,7 @@ fi
 echo "============================================================"
 echo "Building Docker image $REPOSITORY:$TAG..."
 echo "============================================================"
-docker build -t $REPOSITORY:$TAG -f $FILE .
+docker build -t $REPOSITORY:$TAG --build-arg REVISION=$TAG -f $FILE .
 
 echo "============================================================"
 echo "Pushing Docker image $REPOSITORY:$TAG..."
