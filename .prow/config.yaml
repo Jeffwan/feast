@@ -226,7 +226,6 @@ postsubmits:
             --google_service_account_file /etc/gcloud/service-account.json
 
           fi
-          
         volumeMounts:
         - name: docker-socket
           mountPath: /var/run/docker.sock
