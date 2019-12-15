@@ -157,6 +157,8 @@ postsubmits:
       containers:
       - image: python:3
         command:
+        - sh
+        - -c 
         - |
           .prow/scripts/publish_python_sdk.sh \
             --directory_path sdk/python --repository testpypi
